@@ -3,6 +3,7 @@
 #include <fstream>
 #include <cstring>
 #include <stdint.h>
+#include <dsp/filter.hpp>
 
 // $Id: Interferometer.cpp,v 1.4 2024/02/10 13:33:44 gregh Exp gregh $
 
@@ -20,6 +21,7 @@ struct Interferometer : Module {
   static const int BUF_SIZE = 100000;
   float buffer[BUF_SIZE];
   
+  
   // location in the buffer where the head is.
   int buf_head = 0;
   // trigger state
@@ -30,7 +32,8 @@ struct Interferometer : Module {
   float soundboard[BUF_SIZE];
 
   enum ParamId {
-                DECAY_PARAM,
+		DECAY_PARAM,
+		DELAY_FEEDBACK_FREQ_PARAM,
 		PARAMS_LEN
   };
   enum InputId {
@@ -50,12 +53,22 @@ struct Interferometer : Module {
   Interferometer() {
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
     configParam(DECAY_PARAM, 0.f, 1.f, 0.f, "");
+    configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.f, "");
     configInput(VOCT_INPUT, "");
     configInput(TRIG_INPUT, "");
     configOutput(OUT_OUTPUT, "");
+    
+    // create a biquad filter to control the feedback through the delay filter.
+    rack::dsp::BiquadFilter delayFilter;
+    // normalized frequency for filter is cutoff_freq/sample_rate.
+    // frequency, q, gain_labeled_as_v
+    delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 20.0, 1.0, 0.0); 
+
+    // load the soundboard exciter wave file.
     soundboard_size = load(soundboard);
     INFO("soundboard_size %d", soundboard_size);
     if (soundboard_size < 0) {
+    
     }
   }
 
@@ -158,6 +171,7 @@ struct InterferometerWidget : ModuleWidget {
     addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
     addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(13.05, 78.178)), module, Interferometer::DECAY_PARAM));
+    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(33.999, 80.013)), module, Interferometer::DELAY_FEEDBACK_FREQ_PARAM));
 
     addInput(createInputCentered<PJ301MPort>(mm2px(Vec(12.718, 15.651)), module, Interferometer::VOCT_INPUT));
     addInput(createInputCentered<PJ301MPort>(mm2px(Vec(34.012, 17.686)), module, Interferometer::TRIG_INPUT));
