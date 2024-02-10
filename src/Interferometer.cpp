@@ -49,21 +49,32 @@ struct Interferometer : Module {
 		ACTIVE_LIGHT,
 		LIGHTS_LEN
   };
+  
+  // create a biquad filter to control the feedback through the delay filter.
+  rack::dsp::BiquadFilter delayFilter;
+  rack::dsp::BiquadFilter dcFilter;
 
-  Interferometer() {
+Interferometer() {
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
     configParam(DECAY_PARAM, 0.f, 1.f, 0.f, "");
     configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.f, "");
+    // .07874
+    // .07974 bad
+    // .0795 good
+    // .0796 good
+    // .0797 bad
+    // .07965 bad (on the end)
     configInput(VOCT_INPUT, "");
     configInput(TRIG_INPUT, "");
     configOutput(OUT_OUTPUT, "");
     
-    // create a biquad filter to control the feedback through the delay filter.
-    rack::dsp::BiquadFilter delayFilter;
-    // normalized frequency for filter is cutoff_freq/sample_rate.
-    // frequency, q, gain_labeled_as_v
-    delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 20.0, 1.0, 0.0); 
-
+    
+    // normalized frequency for filter is cutoff_freq/sample_rate. goes unstable above 0.5.
+    // frequency, q, gain_labeled_as_v.  
+    delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
+    // highpass stuff above 4 or 5 Hz
+    dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 0.0001, 0.5, 0.0); 
+    
     // load the soundboard exciter wave file.
     soundboard_size = load(soundboard);
     INFO("soundboard_size %d", soundboard_size);
@@ -76,10 +87,15 @@ struct Interferometer : Module {
 
     float decay;
     float trigger;
-    float y;
+    float y =0.f;
 
     // get the Karplus decay parameter from the knob.
     decay = params[DECAY_PARAM].getValue();
+    
+    // read the value and update the parameters of the biquad feedback filter.
+    float feedback_filter_param  = params[DELAY_FEEDBACK_FREQ_PARAM].getValue();
+    // Q critically damped is 0.5
+    delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
 
     // Blink light at 1Hz
     blinkPhase += args.sampleTime;
@@ -116,7 +132,7 @@ struct Interferometer : Module {
       // ramp
       //buffer[buf_head] = 5.0f * (trig_state/(float)delay_line_len - 0.5f);
       // piano
-      buffer[buf_head] = 5.0f * soundboard[trig_state];
+      y = 5.0f * soundboard[trig_state];
       
       trig_state++;
       //if (trig_state >= delay_line_len) {
@@ -127,32 +143,37 @@ struct Interferometer : Module {
         trig_state = 0;
       }
 
-}
+    }
 
     int tap1 = buf_head - delay_line_len ;
     if (tap1 < 0) tap1 += BUF_SIZE;
 
-    int tap2 = buf_head - (delay_line_len + 1);
-    if (tap2 < 0) tap2 += BUF_SIZE;
+    //int tap2 = buf_head - (delay_line_len + 1);
+    //if (tap2 < 0) tap2 += BUF_SIZE;
 
-    int tap3 = buf_head - ((2 * delay_line_len) / 3);
-    if (tap3 < 0) tap3 += BUF_SIZE;
+    //int tap3 = buf_head - ((2 * delay_line_len) / 3);
+    //if (tap3 < 0) tap3 += BUF_SIZE;
 
-    y = (1-decay) * (buffer[tap1] + 
-                     buffer[tap2]) / 2.0;
+    //y = (1-decay) * (buffer[tap1] + 
+    //                 buffer[tap2]) / 2.0;
+                     
+    y += (1-decay) * delayFilter.process(buffer[tap1]);
+    y = dcFilter.process(y);
 
     //y = (1-decay) * ((buffer[tap1] + 
     //                  buffer[tap2]) / 2.0 +
     //                 buffer[tap3]/4.0) / 1.25;
 
 
-    if (trig_state == 0) {
-      buffer[buf_head] = y;
-    } else {
-      buffer[buf_head] = buffer[buf_head] + y;
-    }
+    //if (trig_state == 0) {
+    //  buffer[buf_head] = y;
+    //} else {
+    //  buffer[buf_head] = buffer[buf_head] + y;
+    //}
+    y = math::clamp(-9.f, y, 9.f);
+    buffer[buf_head] = y;
     
-    outputs[OUT_OUTPUT].setVoltage(buffer[buf_head]);
+    outputs[OUT_OUTPUT].setVoltage(y);
 
     buf_head = (buf_head+1) % BUF_SIZE;
 
