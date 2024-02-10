@@ -1,0 +1,25 @@
+{
+  "slug": "Interferometer",
+  "name": "Interferometer",
+  "version": "2.0.0",
+  "license": "proprietary",
+  "brand": "gregh3285",
+  "author": "Greg Hawley",
+  "authorEmail": "greg.hawley@ieee.org",
+  "authorUrl": "",
+  "pluginUrl": "",
+  "manualUrl": "",
+  "sourceUrl": "",
+  "donateUrl": "",
+  "changelogUrl": "",
+  "modules": [
+    {
+      "slug": "Interferometer",
+      "name": "Interferometer",
+      "description": "foo",
+      "tags": [
+        "oscillator"
+      ]
+    }
+  ]
+}
