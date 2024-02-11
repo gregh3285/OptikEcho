@@ -41,6 +41,7 @@ struct Interferometer : Module {
 		LIGHTS_LEN
   };
   
+  rack::dsp::BiquadFilter master_dcFilter;
   static const int POLY_NUM = 16;
   struct Engine {
     //float trigger_state = TRIG_OFF;
@@ -53,25 +54,29 @@ struct Interferometer : Module {
     int   delay_line_len = 100;
     rack::dsp::BiquadFilter delayFilter;
     rack::dsp::BiquadFilter dcFilter;
+    float last_trig = 0.f;
   };
   Engine eng[POLY_NUM];
   
 
 Interferometer() {
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-    configParam(DECAY_PARAM, 0.f, 1.f, 0.f, "");
+    configParam(DECAY_PARAM, 0.f, 0.125f, 0.f, "");
     configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.f, "");
     configInput(VOCT_INPUT, "");
     configInput(TRIG_INPUT, "");
     configOutput(OUT_OUTPUT, "");
     
+    // DC blocking set to 20.6 Hz
+    // See: https://community.vcvrack.com/t/dc-blocker-in-rack-api/8419/6
     
+    master_dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 20.6f/44000.0, 0.5, 0.0);
     // normalized frequency for filter is cutoff_freq/sample_rate. goes unstable above 0.5.
     // frequency, q, gain_labeled_as_v.  
     for (int ch = 0; ch < POLY_NUM; ch++) {
       eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
       // highpass stuff above 4 or 5 Hz
-      eng[ch].dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 0.00001, 0.5, 0.0); 
+      eng[ch].dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 20.6f/44000.0, 0.5, 0.0); 
     }
     // load the soundboard exciter wave file.
     soundboard_size = load(soundboard);
@@ -79,13 +84,14 @@ Interferometer() {
     if (soundboard_size < 0) {
     
     }
+    
   }
 
   void process(const ProcessArgs &args) override {
 
     float decay;
     float trigger;
-    float y =0.f;
+    float y =0.f; // output for the set of channels (summed)
     
     float feedback_filter_param;
 
@@ -109,11 +115,15 @@ Interferometer() {
       // Q critically damped is 0.5
       eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
     
-      // were we triggered?
+      // a trigger a rising edge.        
+      // allow retriggering.  Arbitrarily the threshold is 0.7
       trigger = inputs[TRIG_INPUT].getVoltage(ch);
-      if ((eng[ch].trig_state == TRIG_OFF) && (trigger > 0.5)) {
+      if ((eng[ch].last_trig < 0.7) && (trigger > 0.7)) {
+        // set the trigger buffer to 1
         eng[ch].trig_state = 1; 
       }
+      // store away current sample.
+      eng[ch].last_trig = trigger;
 
       // if we are currently triggered and outputting an impulse,
       if (eng[ch].trig_state != TRIG_OFF) {
@@ -145,7 +155,7 @@ Interferometer() {
         // piano
         // TODO: since trig_state starts at 1, shouldn't this and the
         //       the termination predicate be minus 1?
-        co = 5.0f * soundboard[eng[ch].trig_state];
+        co = 8.0f * soundboard[eng[ch].trig_state - 1];
         //y = 4.0f * soundboard[trig_state] + 1.0f;
         
         eng[ch].trig_state++;
@@ -153,7 +163,7 @@ Interferometer() {
         //  trig_state = 0;
         //}
         // piano
-        if (eng[ch].trig_state >= soundboard_size) {
+        if ((eng[ch].trig_state - 1) >= soundboard_size) {
           eng[ch].trig_state = TRIG_OFF;
         }
 
@@ -163,23 +173,28 @@ Interferometer() {
       if (tap < 0) tap += BUF_SIZE;
 
       // run the delay filter and decay
-      co += (1-decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
+      co += (1.0f - decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
+      
       // apply that output DC block filter
       co = eng[ch].dcFilter.process(co);
+      
+      // store this channel's output at the head of the delay line buffer
       eng[ch].buffer[eng[ch].buf_head] = co;
       
+      // sum this channel's output into the master output
       y += co;
       
+      // update the head before we leave.
       eng[ch].buf_head = (eng[ch].buf_head+1) % BUF_SIZE;
     }
     
     // clamp outputs then output.
-    y = math::clamp(-9.f, y, 9.f);
+    //y = math::clamp(-9.f, y, 9.f);
+    //y = master_dcFilter.process(y);
     
+    // output the master voltage.
     outputs[OUT_OUTPUT].setVoltage(y);
-
-
-
+    
   }
   
   void onReset(const ResetEvent& e) override {
@@ -299,7 +314,8 @@ int load(float *extbuff){
               // use just one channel.
               if ((i % 2) == 0) {
                 //cout << dat_chunk.data[i] << endl;
-                extbuff[ebi++] = dat_chunk.data[i]*1.0/32768.0;
+                // normalize to one volt peak.  divide by 16 (polyphony)
+                extbuff[ebi++] = dat_chunk.data[i]/32768.0/16.0;
               }
             }
         }
