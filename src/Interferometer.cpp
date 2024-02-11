@@ -58,12 +58,6 @@ Interferometer() {
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
     configParam(DECAY_PARAM, 0.f, 1.f, 0.f, "");
     configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.f, "");
-    // .07874
-    // .07974 bad
-    // .0795 good
-    // .0796 good
-    // .0797 bad
-    // .07965 bad (on the end)
     configInput(VOCT_INPUT, "");
     configInput(TRIG_INPUT, "");
     configOutput(OUT_OUTPUT, "");
@@ -73,7 +67,7 @@ Interferometer() {
     // frequency, q, gain_labeled_as_v.  
     delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
     // highpass stuff above 4 or 5 Hz
-    dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 0.0001, 0.5, 0.0); 
+    dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 0.00001, 0.5, 0.0); 
     
     // load the soundboard exciter wave file.
     soundboard_size = load(soundboard);
@@ -133,6 +127,7 @@ Interferometer() {
       //buffer[buf_head] = 5.0f * (trig_state/(float)delay_line_len - 0.5f);
       // piano
       y = 5.0f * soundboard[trig_state];
+      //y = 4.0f * soundboard[trig_state] + 1.0f;
       
       trig_state++;
       //if (trig_state >= delay_line_len) {
@@ -148,28 +143,11 @@ Interferometer() {
     int tap1 = buf_head - delay_line_len ;
     if (tap1 < 0) tap1 += BUF_SIZE;
 
-    //int tap2 = buf_head - (delay_line_len + 1);
-    //if (tap2 < 0) tap2 += BUF_SIZE;
-
-    //int tap3 = buf_head - ((2 * delay_line_len) / 3);
-    //if (tap3 < 0) tap3 += BUF_SIZE;
-
-    //y = (1-decay) * (buffer[tap1] + 
-    //                 buffer[tap2]) / 2.0;
-                     
+    // run the delay filter and decay
     y += (1-decay) * delayFilter.process(buffer[tap1]);
+    // apply that output DC block filter
     y = dcFilter.process(y);
 
-    //y = (1-decay) * ((buffer[tap1] + 
-    //                  buffer[tap2]) / 2.0 +
-    //                 buffer[tap3]/4.0) / 1.25;
-
-
-    //if (trig_state == 0) {
-    //  buffer[buf_head] = y;
-    //} else {
-    //  buffer[buf_head] = buffer[buf_head] + y;
-    //}
     y = math::clamp(-9.f, y, 9.f);
     buffer[buf_head] = y;
     
@@ -178,6 +156,16 @@ Interferometer() {
     buf_head = (buf_head+1) % BUF_SIZE;
 
   }
+  
+  void onReset(const ResetEvent& e) override {
+    // Reset all parameters
+    Module::onReset(e);   
+    // stop any not initiation
+    trig_state = 0;
+    // clear the delay buffer
+    for (int i = 0; i < BUF_SIZE; i++) buffer[i] = 0.f;
+  }
+  
 };
 
 
@@ -206,6 +194,8 @@ struct InterferometerWidget : ModuleWidget {
 
 using namespace std;
 
+// wav file reading code based upon https://stackoverflow.com/a/32128050
+
 struct RIFFHeader{
     char chunk_id[4];
     uint32_t chunk_size;
@@ -227,7 +217,6 @@ struct FmtChunk{
 };
 
 struct DataChunk
-// We assume 16-bit monochannel samples
 {  
     int nb_of_samples;
     int16_t* data;
@@ -244,8 +233,6 @@ int load(float *extbuff){
     ifstream ifs{asset::plugin(pluginInstance, "res/soundboard.wav").data(), ios_base::binary};
     INFO("soundboard location %s", asset::plugin(pluginInstance, "res/soundboard.wav").data());
     if (!ifs){
-        //cerr << "Cannot open file" << endl;
-        
         INFO("cannot open soundboard file.");
         return -1;
     }
@@ -254,7 +241,6 @@ int load(float *extbuff){
     RIFFHeader h;
     ifs.read((char*)(&h), sizeof(h));
     if (!ifs || memcmp(h.chunk_id, riff_id, 4) || memcmp(h.format, format, 4)){
-        //cerr << "Bad formatting" << endl;
         INFO("bad formatting");
         return -1;
     }
@@ -277,11 +263,13 @@ int load(float *extbuff){
             DataChunk dat_chunk(ch.chunk_size/sizeof(int16_t));
             ifs.read((char*)dat_chunk.data, ch.chunk_size);
             data_read = true;
-            //cout << "Reading datachuck with length " << ch.chunk_size << endl;
+
             INFO("reading datachunk with length %d", ch.chunk_size); 
             long unsigned int i;
             
             for (i = 0; i < ch.chunk_size/sizeof(int16_t); i++) {
+              // samples alternate between channels as the file is stereo.
+              // use just one channel.
               if ((i % 2) == 0) {
                 //cout << dat_chunk.data[i] << endl;
                 extbuff[ebi++] = dat_chunk.data[i]*1.0/32768.0;
@@ -294,10 +282,10 @@ int load(float *extbuff){
         }
     }
     if (!data_read || !fmt_read){
-        //cout << "Problem when reading data" << endl;
         INFO("problem reading data.");
         return -1;
     }
+    // return the number of samples in the one channel.
     return ebi;
 }
 
