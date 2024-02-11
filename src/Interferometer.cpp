@@ -68,10 +68,11 @@ Interferometer() {
     
     // normalized frequency for filter is cutoff_freq/sample_rate. goes unstable above 0.5.
     // frequency, q, gain_labeled_as_v.  
-    eng[0].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
-    // highpass stuff above 4 or 5 Hz
-    eng[0].dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 0.00001, 0.5, 0.0); 
-    
+    for (int ch = 0; ch < POLY_NUM; ch++) {
+      eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
+      // highpass stuff above 4 or 5 Hz
+      eng[ch].dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 0.00001, 0.5, 0.0); 
+    }
     // load the soundboard exciter wave file.
     soundboard_size = load(soundboard);
     INFO("soundboard_size %d", soundboard_size);
@@ -100,85 +101,96 @@ Interferometer() {
       blinkPhase -= 1.f;
     }
     lights[ACTIVE_LIGHT].setBrightness(blinkPhase < 0.5f ? 1.f : 0.f);
-
-    // Q critically damped is 0.5
-    eng[0].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
+   
+    // loop through channels
+    for (int ch=0; ch<POLY_NUM; ch++) {
+      float co = 0.f; // output for the given channel.
     
-    // were we triggered?
-    trigger = inputs[TRIG_INPUT].getVoltage();
-    if ((eng[0].trig_state == TRIG_OFF) && (trigger > 0.5)) {
-      eng[0].trig_state = 1; 
-    }
-
-    // if we are currently triggered and outputting an impulse,
-    if (eng[0].trig_state != TRIG_OFF) {
+      // Q critically damped is 0.5
+      eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
     
-      // sample the frequency at the point where we are triggering
-      // sample each time to avoid the race condition between 
-      // trigger signal and stabilization of frequency input.
-      float pitch = inputs[VOCT_INPUT].getVoltage();
-
-      // The default frequency (0.f volts) is C4 = 261.6256 Hz.
-      float freq = dsp::FREQ_C4 * std::pow(2.f, pitch);
-
-      // bound it to 60 to 1kHz
-      // TODO: Is this required?
-      // The top note on a piano is 4186 Hz.  
-      // At higher frequencies, the tuning becomes more quantized.
-      if (freq<10.0) freq=10.0;
-      if (freq>2000.0) freq=2000.0;
-
-      // set the delay line length accordingly
-      eng[0].delay_line_len = args.sampleRate/freq;
-
-      // random
-      //buffer[buf_head] = 5.0f * (random::uniform()-0.5f);
-      // ramp
-      //buffer[buf_head] = 5.0f * (trig_state/(float)delay_line_len - 0.5f);
-      // decaying exponential of noise?
-      // TODO: decaying exponential of noise.
-      // piano
-      // TODO: since trig_state starts at 1, shouldn't this and the
-      //       the termination predicate be minus 1?
-      y = 5.0f * soundboard[eng[0].trig_state];
-      //y = 4.0f * soundboard[trig_state] + 1.0f;
-      
-      eng[0].trig_state++;
-      //if (trig_state >= delay_line_len) {
-      //  trig_state = 0;
-      //}
-      // piano
-      if (eng[0].trig_state >= soundboard_size) {
-        eng[0].trig_state = TRIG_OFF;
+      // were we triggered?
+      trigger = inputs[TRIG_INPUT].getVoltage(ch);
+      if ((eng[ch].trig_state == TRIG_OFF) && (trigger > 0.5)) {
+        eng[ch].trig_state = 1; 
       }
 
+      // if we are currently triggered and outputting an impulse,
+      if (eng[ch].trig_state != TRIG_OFF) {
+      
+        // sample the frequency at the point where we are triggering
+        // sample each time to avoid the race condition between 
+        // trigger signal and stabilization of frequency input.
+        float pitch = inputs[VOCT_INPUT].getVoltage(ch);
+
+        // The default frequency (0.f volts) is C4 = 261.6256 Hz.
+        float freq = dsp::FREQ_C4 * std::pow(2.f, pitch);
+
+        // bound it to 60 to 1kHz
+        // TODO: Is this required?
+        // The top note on a piano is 4186 Hz.  
+        // At higher frequencies, the tuning becomes more quantized.
+        if (freq<10.0) freq=10.0;
+        if (freq>2000.0) freq=2000.0;
+
+        // set the delay line length accordingly
+        eng[ch].delay_line_len = args.sampleRate/freq;
+
+        // random
+        //buffer[buf_head] = 5.0f * (random::uniform()-0.5f);
+        // ramp
+        //buffer[buf_head] = 5.0f * (trig_state/(float)delay_line_len - 0.5f);
+        // decaying exponential of noise?
+        // TODO: decaying exponential of noise.
+        // piano
+        // TODO: since trig_state starts at 1, shouldn't this and the
+        //       the termination predicate be minus 1?
+        co = 5.0f * soundboard[eng[ch].trig_state];
+        //y = 4.0f * soundboard[trig_state] + 1.0f;
+        
+        eng[ch].trig_state++;
+        //if (trig_state >= delay_line_len) {
+        //  trig_state = 0;
+        //}
+        // piano
+        if (eng[ch].trig_state >= soundboard_size) {
+          eng[ch].trig_state = TRIG_OFF;
+        }
+
+      }
+
+      int tap = eng[ch].buf_head - eng[ch].delay_line_len ;
+      if (tap < 0) tap += BUF_SIZE;
+
+      // run the delay filter and decay
+      co += (1-decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
+      // apply that output DC block filter
+      co = eng[ch].dcFilter.process(co);
+      eng[ch].buffer[eng[ch].buf_head] = co;
+      
+      y += co;
+      
+      eng[ch].buf_head = (eng[ch].buf_head+1) % BUF_SIZE;
     }
-
-    int tap = eng[0].buf_head - eng[0].delay_line_len ;
-    if (tap < 0) tap += BUF_SIZE;
-
-    // run the delay filter and decay
-    y += (1-decay) * eng[0].delayFilter.process(eng[0].buffer[tap]);
-    // apply that output DC block filter
-    y = eng[0].dcFilter.process(y);
-
+    
     // clamp outputs then output.
     y = math::clamp(-9.f, y, 9.f);
-    eng[0].buffer[eng[0].buf_head] = y;
     
     outputs[OUT_OUTPUT].setVoltage(y);
 
-    eng[0].buf_head = (eng[0].buf_head+1) % BUF_SIZE;
+
 
   }
   
   void onReset(const ResetEvent& e) override {
     // Reset all parameters
     Module::onReset(e);   
-    // stop any not initiation
-    eng[0].trig_state = 0;
-    // clear the delay buffer
-    for (int i = 0; i < BUF_SIZE; i++) eng[0].buffer[i] = 0.f;
+    for (int ch = 0; ch < POLY_NUM; ch++) {
+      // stop any not initiation
+      eng[ch].trig_state = 0;
+      // clear the delay buffer
+      for (int i = 0; i < BUF_SIZE; i++) eng[ch].buffer[i] = 0.f;
+    }
   }
   
 };
