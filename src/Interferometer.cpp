@@ -12,21 +12,12 @@ int load(float *extbuff); // load the soundboard file.
 struct Interferometer : Module {
   float phase = 0.f;
   float blinkPhase = 0.f;
-  const int TRIG_OFF = 0;
-  const int TRIG_ON = 1;
-  float trigger_state = TRIG_OFF;
-  int   delay_line_len = 100;
+  static const int TRIG_OFF = 0;
+  //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
   static const int BUF_SIZE = 100000;
-  float buffer[BUF_SIZE];
-  
-  
-  // location in the buffer where the head is.
-  int buf_head = 0;
-  // trigger state
-  int trig_state = 0;
-  
+   
   // soundboard storage
   int soundboard_size = 0;
   float soundboard[BUF_SIZE];
@@ -50,9 +41,21 @@ struct Interferometer : Module {
 		LIGHTS_LEN
   };
   
-  // create a biquad filter to control the feedback through the delay filter.
-  rack::dsp::BiquadFilter delayFilter;
-  rack::dsp::BiquadFilter dcFilter;
+  static const int POLY_NUM = 16;
+  struct Engine {
+    //float trigger_state = TRIG_OFF;
+    float buffer[BUF_SIZE];
+    // location in the buffer where the head is.
+    int buf_head = 0;
+    // trigger state
+    int trig_state = 0;
+    // create a biquad filter to control the feedback through the delay filter.
+    int   delay_line_len = 100;
+    rack::dsp::BiquadFilter delayFilter;
+    rack::dsp::BiquadFilter dcFilter;
+  };
+  Engine eng[POLY_NUM];
+  
 
 Interferometer() {
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -65,9 +68,9 @@ Interferometer() {
     
     // normalized frequency for filter is cutoff_freq/sample_rate. goes unstable above 0.5.
     // frequency, q, gain_labeled_as_v.  
-    delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
+    eng[0].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
     // highpass stuff above 4 or 5 Hz
-    dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 0.00001, 0.5, 0.0); 
+    eng[0].dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 0.00001, 0.5, 0.0); 
     
     // load the soundboard exciter wave file.
     soundboard_size = load(soundboard);
@@ -82,14 +85,14 @@ Interferometer() {
     float decay;
     float trigger;
     float y =0.f;
+    
+    float feedback_filter_param;
 
     // get the Karplus decay parameter from the knob.
     decay = params[DECAY_PARAM].getValue();
     
     // read the value and update the parameters of the biquad feedback filter.
-    float feedback_filter_param  = params[DELAY_FEEDBACK_FREQ_PARAM].getValue();
-    // Q critically damped is 0.5
-    delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
+    feedback_filter_param  = params[DELAY_FEEDBACK_FREQ_PARAM].getValue();
 
     // Blink light at 1Hz
     blinkPhase += args.sampleTime;
@@ -98,62 +101,74 @@ Interferometer() {
     }
     lights[ACTIVE_LIGHT].setBrightness(blinkPhase < 0.5f ? 1.f : 0.f);
 
+    // Q critically damped is 0.5
+    eng[0].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
+    
+    // were we triggered?
     trigger = inputs[TRIG_INPUT].getVoltage();
-    if ((trigger_state == TRIG_OFF) && (trigger > 0.5)) {
-      trigger_state = TRIG_ON;
-      trig_state = 1; 
-
-    } else if ((trigger_state == TRIG_ON) && (trigger < 0.1)) {
-      trigger_state = TRIG_OFF;
+    if ((eng[0].trig_state == TRIG_OFF) && (trigger > 0.5)) {
+      eng[0].trig_state = 1; 
     }
 
-    if (trig_state != 0) {
+    // if we are currently triggered and outputting an impulse,
+    if (eng[0].trig_state != TRIG_OFF) {
+    
       // sample the frequency at the point where we are triggering
+      // sample each time to avoid the race condition between 
+      // trigger signal and stabilization of frequency input.
       float pitch = inputs[VOCT_INPUT].getVoltage();
 
-      // The default frequency is C4 = 261.6256f
+      // The default frequency (0.f volts) is C4 = 261.6256 Hz.
       float freq = dsp::FREQ_C4 * std::pow(2.f, pitch);
 
       // bound it to 60 to 1kHz
+      // TODO: Is this required?
+      // The top note on a piano is 4186 Hz.  
+      // At higher frequencies, the tuning becomes more quantized.
       if (freq<10.0) freq=10.0;
       if (freq>2000.0) freq=2000.0;
 
       // set the delay line length accordingly
-      delay_line_len = args.sampleRate/freq;
+      eng[0].delay_line_len = args.sampleRate/freq;
 
       // random
       //buffer[buf_head] = 5.0f * (random::uniform()-0.5f);
       // ramp
       //buffer[buf_head] = 5.0f * (trig_state/(float)delay_line_len - 0.5f);
+      // decaying exponential of noise?
+      // TODO: decaying exponential of noise.
       // piano
-      y = 5.0f * soundboard[trig_state];
+      // TODO: since trig_state starts at 1, shouldn't this and the
+      //       the termination predicate be minus 1?
+      y = 5.0f * soundboard[eng[0].trig_state];
       //y = 4.0f * soundboard[trig_state] + 1.0f;
       
-      trig_state++;
+      eng[0].trig_state++;
       //if (trig_state >= delay_line_len) {
       //  trig_state = 0;
       //}
       // piano
-      if (trig_state >= soundboard_size) {
-        trig_state = 0;
+      if (eng[0].trig_state >= soundboard_size) {
+        eng[0].trig_state = TRIG_OFF;
       }
 
     }
 
-    int tap1 = buf_head - delay_line_len ;
-    if (tap1 < 0) tap1 += BUF_SIZE;
+    int tap = eng[0].buf_head - eng[0].delay_line_len ;
+    if (tap < 0) tap += BUF_SIZE;
 
     // run the delay filter and decay
-    y += (1-decay) * delayFilter.process(buffer[tap1]);
+    y += (1-decay) * eng[0].delayFilter.process(eng[0].buffer[tap]);
     // apply that output DC block filter
-    y = dcFilter.process(y);
+    y = eng[0].dcFilter.process(y);
 
+    // clamp outputs then output.
     y = math::clamp(-9.f, y, 9.f);
-    buffer[buf_head] = y;
+    eng[0].buffer[eng[0].buf_head] = y;
     
     outputs[OUT_OUTPUT].setVoltage(y);
 
-    buf_head = (buf_head+1) % BUF_SIZE;
+    eng[0].buf_head = (eng[0].buf_head+1) % BUF_SIZE;
 
   }
   
@@ -161,9 +176,9 @@ Interferometer() {
     // Reset all parameters
     Module::onReset(e);   
     // stop any not initiation
-    trig_state = 0;
+    eng[0].trig_state = 0;
     // clear the delay buffer
-    for (int i = 0; i < BUF_SIZE; i++) buffer[i] = 0.f;
+    for (int i = 0; i < BUF_SIZE; i++) eng[0].buffer[i] = 0.f;
   }
   
 };
