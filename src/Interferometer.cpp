@@ -111,6 +111,7 @@ Interferometer() {
     // loop through channels
     for (int ch=0; ch<POLY_NUM; ch++) {
       float co = 0.f; // output for the given channel.
+      float ch_decay = decay;
     
       // Q critically damped is 0.5
       eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
@@ -122,6 +123,12 @@ Interferometer() {
         // set the trigger buffer to 1
         eng[ch].trig_state = 1; 
       }
+      
+      // handle not goes away (real note decay).
+      if (trigger < 0.7) {
+        ch_decay = 0.06;
+      }
+      
       // store away current sample.
       eng[ch].last_trig = trigger;
 
@@ -168,12 +175,13 @@ Interferometer() {
         }
 
       }
+      // TODO: handle when gate goes away!
 
       int tap = eng[ch].buf_head - eng[ch].delay_line_len ;
       if (tap < 0) tap += BUF_SIZE;
 
       // run the delay filter and decay
-      co += (1.0f - decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
+      co += (1.0f - ch_decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
       
       // apply that output DC block filter
       co = eng[ch].dcFilter.process(co);
