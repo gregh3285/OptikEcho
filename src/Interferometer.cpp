@@ -51,7 +51,7 @@ struct Interferometer : Module {
     // trigger state
     int trig_state = 0;
     // create a biquad filter to control the feedback through the delay filter.
-    int   delay_line_len = 100;
+    float   delay_line_len = 100;
     rack::dsp::BiquadFilter delayFilter;
     rack::dsp::BiquadFilter dcFilter;
     float last_trig = 0.f;
@@ -147,8 +147,8 @@ Interferometer() {
         // TODO: Is this required?
         // The top note on a piano is 4186 Hz.  
         // At higher frequencies, the tuning becomes more quantized.
-        if (freq<10.0) freq=10.0;
-        if (freq>2000.0) freq=2000.0;
+        //if (freq<10.0) freq=10.0;
+        //if (freq>2000.0) freq=2000.0;
 
         // set the delay line length accordingly
         eng[ch].delay_line_len = args.sampleRate/freq;
@@ -177,11 +177,22 @@ Interferometer() {
       }
       // TODO: handle when gate goes away!
 
-      int tap = eng[ch].buf_head - eng[ch].delay_line_len ;
-      if (tap < 0) tap += BUF_SIZE;
-
-      // run the delay filter and decay
-      co += (1.0f - ch_decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
+      //int tap = eng[ch].buf_head - eng[ch].delay_line_len ;
+      //if (tap < 0) tap += BUF_SIZE;
+      //// run the delay filter and decay
+      //co += (1.0f - ch_decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
+      
+      // handle non-integer delay line value (naively), without sync()
+      int tap1 = floor(eng[ch].delay_line_len);
+      int tap2 = tap1 + 1.0f;
+      int loc1 = eng[ch].buf_head - tap1;
+      int loc2 = eng[ch].buf_head - tap2;
+      if (loc1 < 0) loc1 += BUF_SIZE;
+      if (loc2 < 0) loc2 += BUF_SIZE;
+      float ratio2 = eng[ch].delay_line_len - tap1;
+      float ratio1 = 1.0f - ratio2;
+      float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2;
+      co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
       
       // apply that output DC block filter
       co = eng[ch].dcFilter.process(co);
