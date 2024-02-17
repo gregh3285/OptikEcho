@@ -13,6 +13,8 @@ struct Interferometer : Module {
   float phase = 0.f;
   float blinkPhase = 0.f;
   static const int TRIG_OFF = 0;
+  int exciter=0;
+  int delay_fractional=0;
   //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
@@ -177,22 +179,28 @@ Interferometer() {
       }
       // TODO: handle when gate goes away!
 
-      //int tap = eng[ch].buf_head - eng[ch].delay_line_len ;
-      //if (tap < 0) tap += BUF_SIZE;
-      //// run the delay filter and decay
-      //co += (1.0f - ch_decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
+      if (delay_fractional == 0) {
       
-      // handle non-integer delay line value (naively), without sync()
-      int tap1 = floor(eng[ch].delay_line_len);
-      int tap2 = tap1 + 1.0f;
-      int loc1 = eng[ch].buf_head - tap1;
-      int loc2 = eng[ch].buf_head - tap2;
-      if (loc1 < 0) loc1 += BUF_SIZE;
-      if (loc2 < 0) loc2 += BUF_SIZE;
-      float ratio2 = eng[ch].delay_line_len - tap1;
-      float ratio1 = 1.0f - ratio2;
-      float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2;
-      co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
+        int tap = eng[ch].buf_head - eng[ch].delay_line_len ;
+        if (tap < 0) tap += BUF_SIZE;
+        // run the delay filter and decay
+        co += (1.0f - ch_decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
+        
+      } else if (delay_fractional == 1) {
+      
+        // handle non-integer delay line value (naively), without sync()
+        int tap1 = floor(eng[ch].delay_line_len);
+        int tap2 = tap1 + 1.0f;
+        int loc1 = eng[ch].buf_head - tap1;
+        int loc2 = eng[ch].buf_head - tap2;
+        if (loc1 < 0) loc1 += BUF_SIZE;
+        if (loc2 < 0) loc2 += BUF_SIZE;
+        float ratio2 = eng[ch].delay_line_len - tap1;
+        float ratio1 = 1.0f - ratio2;
+        float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2;
+        co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
+        
+      }
       
       // apply that output DC block filter
       co = eng[ch].dcFilter.process(co);
@@ -250,7 +258,19 @@ struct InterferometerWidget : ModuleWidget {
 
     addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(34.452, 52.137)), module, Interferometer::ACTIVE_LIGHT));
   }
+  
+  void appendContextMenu(Menu* menu) override {
+    Interferometer* module = getModule<Interferometer>();
 
+    // Controls int Module::exciter
+    menu->addChild(createIndexPtrSubmenuItem("Exciter",
+	    {"Piano", "Decay Exponential"},
+	    &module->exciter));
+    // Controls int Module::fractional delay
+    menu->addChild(createIndexPtrSubmenuItem("Fractional Delay",
+	    {"Integer", "Fractional"},
+	    &module->delay_fractional));
+  }
 };
 
 using namespace std;
