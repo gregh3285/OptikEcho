@@ -9,6 +9,25 @@
 
 int load(float *extbuff); // load the soundboard file.
 
+// instantiate an one pole filter for the allpass for dispersion
+template <typename T = float>
+struct TAllpassFilter : rack::dsp::IIRFilter<2, 2, T> {
+    TAllpassFilter() {
+        setParameter(0.f);
+    }
+    void setParameter(float a1) {
+      // from https://github.com/khiner/notebooks/blob/master/Filters.py
+      //  b0, b1, a1 get set to a1, 0, a1 as shown here:
+      //  https://colab.research.google.com/github/khiner/notebooks/blob/master/physical_audio_signal_processing/chapter_9_virtual_musical_instruments_part_2.ipynb#scrollTo=wMHzkzt964i1
+      //  a1 here is a[0];
+      this->b[0] = a1;
+      this->b[1] = 1.f;
+      this->a[0] = a1;
+    }
+    
+};
+typedef TAllpassFilter<float> AllpassFilter;
+
 
 struct Interferometer : Module {
   float phase = 0.f;
@@ -66,6 +85,8 @@ struct Interferometer : Module {
     float a1 = 0.0f;
     float curr_f0 = NOT_A_NOTE;  // current note frequency.
     static const int M = 8;
+
+    AllpassFilter dispersionFilter;
   };
   Engine eng[POLY_NUM];
   
@@ -161,6 +182,7 @@ struct Interferometer : Module {
           // TODO: Real value of B.  Comes from Figure 7.
           update_dispersion_values(freq, eng[ch].M, B, &eng[ch]);
           eng[ch].curr_f0 = freq;
+          eng[ch].dispersionFilter.setParameter(eng[ch].a1);
         }
 
         // bound it to 60 to 1kHz
@@ -221,11 +243,12 @@ struct Interferometer : Module {
         float ratio1 = 1.0f - ratio2;
         float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2;
         co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
+        co = eng[ch].dispersionFilter.process(co);
         
       } else if (delay_fractional == 2) {
       
         // TODO:
-        // Ruhala's paper DISPERSION MODELING IN WAVEGUIDE PIANO 
+        // Ruahala's paper DISPERSION MODELING IN WAVEGUIDE PIANO 
         // SYNTHESIS USING TUNABLE ALLPASS FILTERS alludes to 
         // using am allpass filter to get a delay between 1 and 2. 
         // "The tuning filter was implemented 
@@ -319,6 +342,8 @@ struct Interferometer : Module {
     // key 25 has B = 1e-4 -> note A2 -> 110 Hz 
     // key 1  has B = 2e-4 -> note A0 -> 27.5 Hz  
     // log-log interpolation between freq and b
+    // manually calculated the magic numbers by doing the
+    // interpolation in wxmaxima.
 
     if (freq <= 110.f) {
       return exp(-0.792f*log(freq)-5.485f);
@@ -326,6 +351,8 @@ struct Interferometer : Module {
       return exp(1.265f*log(freq)-15.159f);
     }
   }
+  
+  
   // see https://colab.research.google.com/github/khiner/notebooks/blob/master/
   //             physical_audio_signal_processing
   //             chapter_9_virtual_musical_instruments_part_2.ipynb#
@@ -355,10 +382,15 @@ struct Interferometer : Module {
     float D = std::exp(Cd - Ikey*kd);
     INFO("update dispersion D %f", D);
     float a1 = (1.f - D)/(1.f + D); // D >= 0, so a1 >= 0
+    // don't allow a1 above 0.
+    if (a1 >= 0.f) a1 = 0.f;
     
     // the fundamental delay is not presented in Ruahala's paper.
     float Df0 = std::atan(std::sin(wT)/(a1      + std::cos(wT))) / wT - 
                 std::atan(std::sin(wT)/(1.0f/a1 + std::cos(wT))) / wT;
+    Df0 *= M;  // the above delay is for ONE filter, we cascade M of them.
+    // the does align with figure 9 in the paper.
+    
     INFO("update dispersion f %f, Df0 %f, a1 %f", f0, Df0, a1);
     e->Df0 = Df0; // store the delay in the engine data.
     e->a1 = a1;   // store the filter coefficient in the engine data.
