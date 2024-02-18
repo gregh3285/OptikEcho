@@ -9,6 +9,7 @@
 
 int load(float *extbuff); // load the soundboard file.
 
+
 struct Interferometer : Module {
   float phase = 0.f;
   float blinkPhase = 0.f;
@@ -18,7 +19,9 @@ struct Interferometer : Module {
   //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
-  static const int BUF_SIZE = 100000;
+  static const int   BUF_SIZE = 100000;
+  // 
+  static const int NOT_A_NOTE = 8675309;
    
   // soundboard storage
   int soundboard_size = 0;
@@ -60,7 +63,9 @@ struct Interferometer : Module {
     
     // dispersion filter
     float Df0 = 0.f;        // dispersion filter delay and fundamental.
-    static const int M = 6;
+    float a1 = 0.0f;
+    float curr_f0 = NOT_A_NOTE;  // current note frequency.
+    static const int M = 8;
   };
   Engine eng[POLY_NUM];
   
@@ -148,6 +153,15 @@ struct Interferometer : Module {
 
         // The default frequency (0.f volts) is C4 = 261.6256 Hz.
         float freq = dsp::FREQ_C4 * std::pow(2.f, pitch);
+        
+        // if the note value has changed, update the dispersion filter
+        if (abs(freq - eng[ch].curr_f0) > 0.1) {
+          float B = b_from_freq(freq);
+          INFO("B = %f",B);
+          // TODO: Real value of B.  Comes from Figure 7.
+          update_dispersion_values(freq, eng[ch].M, B, &eng[ch]);
+          eng[ch].curr_f0 = freq;
+        }
 
         // bound it to 60 to 1kHz
         // TODO: Is this required?
@@ -296,7 +310,22 @@ struct Interferometer : Module {
     outputs[OUT_OUTPUT].setVoltage(y);
     
   }
-  
+  float b_from_freq(float freq)
+  {
+    // https://www.phys.unsw.edu.au/jw/notes.html
+    // See figure 7 of:
+    // http://lib.tkk.fi/Diss/2007/isbn9789512290666/article2.pdf
+    // key 88 has B = 2e-2 -> note C8 -> 4186 Hz 
+    // key 25 has B = 1e-4 -> note A2 -> 110 Hz 
+    // key 1  has B = 2e-4 -> note A0 -> 27.5 Hz  
+    // log-log interpolation between freq and b
+
+    if (freq <= 110.f) {
+      return exp(-0.792f*log(freq)-5.485f);
+    } else {
+      return exp(1.265f*log(freq)-15.159f);
+    }
+  }
   // see https://colab.research.google.com/github/khiner/notebooks/blob/master/
   //             physical_audio_signal_processing
   //             chapter_9_virtual_musical_instruments_part_2.ipynb#
@@ -324,12 +353,15 @@ struct Interferometer : Module {
     static const float trt = 1.0594630943592953f; // 2^(1/2)
     float Ikey = std::log(f0 * trt / 27.5f) / std::log(trt);
     float D = std::exp(Cd - Ikey*kd);
+    INFO("update dispersion D %f", D);
     float a1 = (1.f - D)/(1.f + D); // D >= 0, so a1 >= 0
     
-    // the fundamental delay is not presented in Ruhala's paper.
+    // the fundamental delay is not presented in Ruahala's paper.
     float Df0 = std::atan(std::sin(wT)/(a1      + std::cos(wT))) / wT - 
                 std::atan(std::sin(wT)/(1.0f/a1 + std::cos(wT))) / wT;
+    INFO("update dispersion f %f, Df0 %f, a1 %f", f0, Df0, a1);
     e->Df0 = Df0; // store the delay in the engine data.
+    e->a1 = a1;   // store the filter coefficient in the engine data.
     // TODO: Update the filter coefficients.
   }
   
