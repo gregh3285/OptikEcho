@@ -57,11 +57,15 @@ struct Interferometer : Module {
     rack::dsp::BiquadFilter delayFilter;
     rack::dsp::BiquadFilter dcFilter;
     float last_trig = 0.f;
+    
+    // dispersion filter
+    float Df0 = 0.f;        // dispersion filter delay and fundamental.
+    static const int M = 6;
   };
   Engine eng[POLY_NUM];
   
 
-Interferometer() {
+  Interferometer() {
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
     configParam(DECAY_PARAM, 0.f, 0.125f, 0.f, "");
     configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.f, "");
@@ -164,6 +168,10 @@ Interferometer() {
         // piano
         // TODO: since trig_state starts at 1, shouldn't this and the
         //       the termination predicate be minus 1?
+        // TODO: Look at 
+        //       http://lib.tkk.fi/Diss/2007/isbn9789512290666/article3.pdf
+        //       for a better excitation model that doesn't involve
+        //       loading a waveform.
         co = 8.0f * soundboard[eng[ch].trig_state - 1];
         //y = 4.0f * soundboard[trig_state] + 1.0f;
         
@@ -200,6 +208,71 @@ Interferometer() {
         float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2;
         co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
         
+      } else if (delay_fractional == 2) {
+      
+        // TODO:
+        // Ruhala's paper DISPERSION MODELING IN WAVEGUIDE PIANO 
+        // SYNTHESIS USING TUNABLE ALLPASS FILTERS alludes to 
+        // using am allpass filter to get a delay between 1 and 2. 
+        // "The tuning filter was implemented 
+        // with a first-order Thiran allpass filter, and a delay of 
+        // one sample was moved from the delay line to the tuning 
+        // filter in order to have the fractional delay parameter 
+        // in the range from 1 to 2."
+        // So the method described by 
+        // https://www.mathworks.com/help/dsp/ug/design-of-
+        //         fractional-delay-fir-filters.html
+        // might not be the right way to go.
+        int tap1 = floor(eng[ch].delay_line_len);
+        int tap2 = tap1 + 1;
+        int tap3 = tap1 - 1;
+        int tap4 = tap1 - 2;
+        int tap5 = tap1 + 2;
+        int loc1 = eng[ch].buf_head - tap1;
+        int loc2 = eng[ch].buf_head - tap2;
+        int loc3 = eng[ch].buf_head - tap3;
+        int loc4 = eng[ch].buf_head - tap4;
+        int loc5 = eng[ch].buf_head - tap5;
+        
+        // loc1 could be both overflow and underflow
+        if (loc1 < 0) loc1 += BUF_SIZE;
+        if (loc1 >= BUF_SIZE) loc1 -= BUF_SIZE;
+        // loc2 (strictly add) could be overflow
+        if (loc2 < 0) loc2 += BUF_SIZE;
+        if (loc2 >= BUF_SIZE) loc2 -= BUF_SIZE;
+        // loc3 (strictly subract) could (only) be underflow
+        if (loc3 < 0) loc3 += BUF_SIZE;
+        if (loc3 >= BUF_SIZE) loc3 -= BUF_SIZE;
+        if (loc4 < 0) loc4 += BUF_SIZE;
+        if (loc4 >= BUF_SIZE) loc4 -= BUF_SIZE;
+        if (loc5 < 0) loc5 += BUF_SIZE;
+        if (loc5 >= BUF_SIZE) loc5 -= BUF_SIZE;
+        
+        float ratio1;
+        if (tap1-eng[ch].delay_line_len == 0.0)
+          ratio1 = 1.0;
+        else 
+          ratio1 = sin((tap1-eng[ch].delay_line_len)*M_PI) / ((tap1-eng[ch].delay_line_len)*M_PI);
+        float ratio2 = sin((tap2-eng[ch].delay_line_len)*M_PI) / ((tap2-eng[ch].delay_line_len)*M_PI);
+        float ratio3 = sin((tap3-eng[ch].delay_line_len)*M_PI) / ((tap3-eng[ch].delay_line_len)*M_PI);
+        float ratio4 = sin((tap4-eng[ch].delay_line_len)*M_PI) / ((tap4-eng[ch].delay_line_len)*M_PI);
+        float ratio5 = sin((tap5-eng[ch].delay_line_len)*M_PI) / ((tap5-eng[ch].delay_line_len)*M_PI);
+        
+        float sum = ratio1 + ratio2 + ratio3 + ratio4 + ratio5;
+        ratio1 = ratio1/sum;
+        ratio2 = ratio2/sum;
+        ratio3 = ratio3/sum;
+        ratio4 = ratio4/sum;
+        ratio5 = ratio5/sum;
+        
+        // all the above would only need to be updated if the frequency is updated.
+        
+        
+        float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2 + 
+                             eng[ch].buffer[loc3] * ratio3 + eng[ch].buffer[loc4] * ratio4 + 
+                             eng[ch].buffer[loc5] * ratio5;
+                             
+        co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
       }
       
       // apply that output DC block filter
@@ -222,6 +295,42 @@ Interferometer() {
     // output the master voltage.
     outputs[OUT_OUTPUT].setVoltage(y);
     
+  }
+  
+  // see https://colab.research.google.com/github/khiner/notebooks/blob/master/
+  //             physical_audio_signal_processing
+  //             chapter_9_virtual_musical_instruments_part_2.ipynb#
+  //             scrollTo=wMHzkzt964i1&line=2&uniqifier=1
+  // and, http://lib.tkk.fi/Diss/2007/isbn9789512290666/article2.pdf
+  void update_dispersion_values(float f0, int M, float B, struct Engine *e)
+  {
+    // the article above explains the design methodology for the 
+    // all-pass filters, what B is, selection of m, etc.
+    // TODO: manage getting and storing fs.
+    float fs = 44100.0f;
+    float wT = 2 * M_PI * f0 / fs;
+    float Bc = std::max(B, 0.000001f);
+    static const float k1 = -0.00179f; 
+    static const float k2 = -0.0233f; 
+    static const float k3 = -2.93f;
+    float kd;
+    kd = std::exp(k1*std::log(Bc)*std::log(Bc) + k2*std::log(Bc) + k3);
+    static const float m1 = 0.0126f; 
+    static const float m2 = 0.0606f; 
+    static const float m3 = -0.00825f; 
+    static const float m4 = 1.97f;
+    float Cd;
+    Cd = std::exp((m1*std::log(M) + m2)*std::log(Bc) + m3*std::log(M) + m4);
+    static const float trt = 1.0594630943592953f; // 2^(1/2)
+    float Ikey = std::log(f0 * trt / 27.5f) / std::log(trt);
+    float D = std::exp(Cd - Ikey*kd);
+    float a1 = (1.f - D)/(1.f + D); // D >= 0, so a1 >= 0
+    
+    // the fundamental delay is not presented in Ruhala's paper.
+    float Df0 = std::atan(std::sin(wT)/(a1      + std::cos(wT))) / wT - 
+                std::atan(std::sin(wT)/(1.0f/a1 + std::cos(wT))) / wT;
+    e->Df0 = Df0; // store the delay in the engine data.
+    // TODO: Update the filter coefficients.
   }
   
   void onReset(const ResetEvent& e) override {
@@ -268,7 +377,7 @@ struct InterferometerWidget : ModuleWidget {
 	    &module->exciter));
     // Controls int Module::fractional delay
     menu->addChild(createIndexPtrSubmenuItem("Fractional Delay",
-	    {"Integer", "Fractional"},
+	    {"Integer", "Fractional", "Sync"},
 	    &module->delay_fractional));
   }
 };
