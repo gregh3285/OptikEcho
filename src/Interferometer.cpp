@@ -143,6 +143,11 @@ struct Interferometer : Module {
    
     // loop through channels
     for (int ch=0; ch<POLY_NUM; ch++) {
+    
+      if (delay_fractional == 1) {
+        eng[ch].dispersion_enabled = true;
+      }
+      
       float co = 0.f; // output for the given channel.
       float ch_decay = decay;
     
@@ -182,10 +187,21 @@ struct Interferometer : Module {
           INFO("B = %f",B);
           // TODO: Real value of B.  Comes from Figure 7.
           update_dispersion_values(freq, eng[ch].M, B, (float)args.sampleRate, &eng[ch]);
-          eng[ch].curr_f0 = freq;
+          
+          // update all M allpass filters in the cascade.
           for (int j = 0; j < eng[ch].M; j++) {
             eng[ch].dispersionFilter[j].setParameter(eng[ch].a1);
           }
+          
+          // set the delay line length accordingly
+          eng[ch].delay_line_len = args.sampleRate/freq;
+          INFO("delay line len: %f", eng[ch].delay_line_len);
+          // retune due to dispersion filter delay at the primary frequency.
+          if (eng[ch].dispersion_enabled) {
+            eng[ch].delay_line_len -= eng[ch].Df0;
+            INFO("delay line len updated: %f", eng[ch].delay_line_len);
+          }
+        
         }
 
         // bound it to 60 to 1kHz
@@ -197,8 +213,12 @@ struct Interferometer : Module {
 
         // set the delay line length accordingly
         eng[ch].delay_line_len = args.sampleRate/freq;
+        //INFO("delay line len: %f", eng[ch].delay_line_len);
         // retune due to dispersion filter delay at the primary frequency.
-        if (eng[ch].dispersion_enabled) eng[ch].delay_line_len -= eng[ch].Df0;
+        if (eng[ch].dispersion_enabled) {
+          eng[ch].delay_line_len -= eng[ch].Df0;
+          //INFO("delay line len updated: %f", eng[ch].delay_line_len);
+        }
 
         // random
         //buffer[buf_head] = 5.0f * (random::uniform()-0.5f);
@@ -318,6 +338,7 @@ struct Interferometer : Module {
                              eng[ch].buffer[loc5] * ratio5;
                              
         co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
+        eng[ch].dispersion_enabled = false;
       }
       
       // apply that output DC block filter
@@ -401,7 +422,7 @@ struct Interferometer : Module {
     INFO("update dispersion f %f, Df0 %f, a1 %f", f0, Df0, a1);
     e->Df0 = Df0; // store the delay in the engine data.
     e->a1 = a1;   // store the filter coefficient in the engine data.
-    // TODO: Update the filter coefficients.
+    e->curr_f0 = f0;  // we're now updated to this.  don't redo if not needed.
   }
   
   void onReset(const ResetEvent& e) override {
