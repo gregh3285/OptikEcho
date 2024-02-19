@@ -24,6 +24,7 @@ struct TAllpassFilter : rack::dsp::IIRFilter<2, 2, T> {
       this->b[1] = 1.f;
       this->a[0] = a1;
     }
+    // TODO: Explore that this really is an allpass filter.
     
 };
 typedef TAllpassFilter<float> AllpassFilter;
@@ -81,12 +82,12 @@ struct Interferometer : Module {
     float last_trig = 0.f;
     
     // dispersion filter
+    bool dispersion_enabled = false;
     float Df0 = 0.f;        // dispersion filter delay and fundamental.
     float a1 = 0.0f;
     float curr_f0 = NOT_A_NOTE;  // current note frequency.
     static const int M = 8;
-
-    AllpassFilter dispersionFilter;
+    AllpassFilter dispersionFilter[M];
   };
   Engine eng[POLY_NUM];
   
@@ -180,9 +181,11 @@ struct Interferometer : Module {
           float B = b_from_freq(freq);
           INFO("B = %f",B);
           // TODO: Real value of B.  Comes from Figure 7.
-          update_dispersion_values(freq, eng[ch].M, B, &eng[ch]);
+          update_dispersion_values(freq, eng[ch].M, B, (float)args.sampleRate, &eng[ch]);
           eng[ch].curr_f0 = freq;
-          eng[ch].dispersionFilter.setParameter(eng[ch].a1);
+          for (int j = 0; j < eng[ch].M; j++) {
+            eng[ch].dispersionFilter[j].setParameter(eng[ch].a1);
+          }
         }
 
         // bound it to 60 to 1kHz
@@ -194,6 +197,8 @@ struct Interferometer : Module {
 
         // set the delay line length accordingly
         eng[ch].delay_line_len = args.sampleRate/freq;
+        // retune due to dispersion filter delay at the primary frequency.
+        if (eng[ch].dispersion_enabled) eng[ch].delay_line_len -= eng[ch].Df0;
 
         // random
         //buffer[buf_head] = 5.0f * (random::uniform()-0.5f);
@@ -229,7 +234,7 @@ struct Interferometer : Module {
         if (tap < 0) tap += BUF_SIZE;
         // run the delay filter and decay
         co += (1.0f - ch_decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
-        
+        eng[ch].dispersion_enabled = false;
       } else if (delay_fractional == 1) {
       
         // handle non-integer delay line value (naively), without sync()
@@ -243,7 +248,10 @@ struct Interferometer : Module {
         float ratio1 = 1.0f - ratio2;
         float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2;
         co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
-        co = eng[ch].dispersionFilter.process(co);
+        for (int j = 0; j < eng[ch].M; j++) {
+          co = eng[ch].dispersionFilter[j].process(co);
+        }
+        eng[ch].dispersion_enabled = true;
         
       } else if (delay_fractional == 2) {
       
@@ -323,6 +331,7 @@ struct Interferometer : Module {
       
       // update the head before we leave.
       eng[ch].buf_head = (eng[ch].buf_head+1) % BUF_SIZE;
+      eng[ch].dispersion_enabled = false;
     }
     
     // clamp outputs then output.
@@ -358,12 +367,10 @@ struct Interferometer : Module {
   //             chapter_9_virtual_musical_instruments_part_2.ipynb#
   //             scrollTo=wMHzkzt964i1&line=2&uniqifier=1
   // and, http://lib.tkk.fi/Diss/2007/isbn9789512290666/article2.pdf
-  void update_dispersion_values(float f0, int M, float B, struct Engine *e)
+  void update_dispersion_values(float f0, int M, float B, float fs, struct Engine *e)
   {
     // the article above explains the design methodology for the 
     // all-pass filters, what B is, selection of m, etc.
-    // TODO: manage getting and storing fs.
-    float fs = 44100.0f;
     float wT = 2 * M_PI * f0 / fs;
     float Bc = std::max(B, 0.000001f);
     static const float k1 = -0.00179f; 
