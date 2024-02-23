@@ -33,15 +33,18 @@ typedef TAllpassFilter<float> AllpassFilter;
 struct Interferometer : Module {
   float phase = 0.f;
   float blinkPhase = 0.f;
-  static const int TRIG_OFF = 0;
+  const int TRIG_OFF = 0;
   int exciter=0;
   int delay_fractional=0;
   //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
   static const int   BUF_SIZE = 100000;
+  static const int PULSE_BUF_SIZE = 256;
   // 
-  static const int NOT_A_NOTE = 8675309;
+#define NOT_A_NOTE (8675309.f);
+  const float LOWEST_FREQUENCY = 27.5f;
+  const float HIGHEST_FREQUENCY = 4186.0f;
    
   // soundboard storage
   int soundboard_size = 0;
@@ -88,6 +91,11 @@ struct Interferometer : Module {
     float curr_f0 = NOT_A_NOTE;  // current note frequency.
     static const int M = 8;
     AllpassFilter dispersionFilter[M];
+    
+    // hammer pulse
+    int pulse_length = 0;
+    float pulse_buf[PULSE_BUF_SIZE];
+    float hammer_gain = 0.0f;
   };
   Engine eng[POLY_NUM];
   
@@ -169,6 +177,10 @@ struct Interferometer : Module {
       
       // store away current sample.
       eng[ch].last_trig = trigger;
+      
+      if (eng[ch].trig_state == 1) {
+        hammer_pulse_and_gain(1567.98, 0.9, &eng[ch]);
+      }
 
       // if we are currently triggered and outputting an impulse,
       if (eng[ch].trig_state != TRIG_OFF) {
@@ -423,6 +435,54 @@ struct Interferometer : Module {
     e->Df0 = Df0; // store the delay in the engine data.
     e->a1 = a1;   // store the filter coefficient in the engine data.
     e->curr_f0 = f0;  // we're now updated to this.  don't redo if not needed.
+  }
+  
+  // Anders Askenfelt and Erik Janson "From touch to string vibrations"
+  // Five Lectures on the Acoustics of the Piano
+  // http://www.speech.kth.se/music/5_lectures/askenflt/askenflt.html
+  void hammer_pulse_and_gain(float frequency, float amplitude, struct Engine *e)
+  {
+    // all units are in milliseconds
+    static const float min_duration_hf = 0.5f;
+    static const float min_duration_lf = 2.0f;
+    static const float max_duration_hf = 1.2f;
+    static const float max_duration_lf = 4.0f;
+    static const float sample_rate = 44100.f; // TODO: hardcoded sample rate.
+    float velocity_scalar = amplitude;
+    float frequency_scalar = 0.0f;
+    float min_duration;
+    float max_duration;
+    float pulse_duration;
+    float pulse_sum = 0.0f;
+    int pulse_length;
+    if (frequency < LOWEST_FREQUENCY) {
+      frequency_scalar = 0.0f;
+    }
+    else if (frequency > HIGHEST_FREQUENCY) {
+      frequency_scalar = 1.0f;
+    }
+    else {
+      frequency_scalar = (log(frequency) - log(LOWEST_FREQUENCY)) / 
+                         (log(HIGHEST_FREQUENCY) - log(LOWEST_FREQUENCY));
+    }
+    min_duration = min_duration_lf - frequency_scalar * (min_duration_lf - min_duration_hf);
+    max_duration = max_duration_lf - frequency_scalar * (max_duration_lf - max_duration_hf);
+    pulse_duration = max_duration - velocity_scalar * (max_duration - min_duration);
+    pulse_duration *= 0.5f; // My addition - less LP filtering by shrinking every pulse
+    pulse_length = pulse_duration * sample_rate / 1000.f;
+    e->pulse_length = pulse_length;
+    if (pulse_length > PULSE_BUF_SIZE) {
+      FATAL("hammer pulse too long: %d", pulse_length);
+    }
+    for (int i = 0; i < pulse_length; i++) {
+      float r = (float)i / (float)(pulse_length - 1) - 0.5f;  // -0.5 to + 0.5
+      e->pulse_buf[i] = 0.5 + 0.5*cos(2.0 * M_PI * r);
+      pulse_sum += e->pulse_buf[i];
+      INFO("pulse_buff %d %f", i, e->pulse_buf[i]);
+    }
+    INFO("pulse_sum: %f",pulse_sum);
+    e->hammer_gain = amplitude/pulse_sum;
+    INFO("hammer_gain: %f",e->hammer_gain);
   }
   
   void onReset(const ResetEvent& e) override {
