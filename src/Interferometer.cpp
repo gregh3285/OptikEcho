@@ -69,6 +69,147 @@ struct Interferometer : Module {
 		LIGHTS_LEN
   };
   
+  
+  // TODO: Add Allpass Delay.
+  // https://github.com/khiner/notebooks/blob/3a384115bc55bdd0e0b0f784c313d22caf09c987/AllpassDelay.py#L15
+
+#define ALLPASS_BUF_SIZE (100000)
+
+  struct TAllpassDelay {
+    // Translation to c++ of:
+    // https://github.com/khiner/notebooks/blob/master/AllpassDelay.py
+    
+    // This class implements a fractional-length digital delay-line using
+    // a first-order allpass filter.  If the delay and maximum length are
+    // not specified during instantiation, a fixed maximum length of 4095
+    // and a delay of 0.5 is set.
+
+    // An allpass filter has unity magnitude gain but variable phase
+    // delay properties, making it useful in achieving fractional delays
+    // without affecting a signal's frequency magnitude response.  In
+    // order to achieve a maximally flat phase delay response, the
+    // minimum delay possible in this implementation is limited to a
+    // value of 0.5.
+    
+    //int max_delay_samples;
+    float *inputs;
+    float last_out;
+    float next_out;
+    int in_pointer;
+    int out_pointer;
+    float allpass_input;
+    bool do_next_out;
+    float delay_samples;
+    float allpass_coefficient;
+    
+    TAllpassDelay(int delay_samples)
+    {
+      // Writing before reading allows delays from 0 to length-1. 
+      inputs = new float[ALLPASS_BUF_SIZE]();
+      last_out = 0.0;
+      next_out = 0.0;
+      in_pointer = 0;
+      set_delay_samples(delay_samples);
+      allpass_input = 0.0;
+      do_next_out = true;
+    }
+    
+    float tick(float in_sample=0.0)
+    {
+      inputs[in_pointer] = in_sample;
+      in_pointer++;
+      if (in_pointer == ALLPASS_BUF_SIZE) {
+        in_pointer = 0;
+      }
+
+      last_out = get_next_out();
+      do_next_out = true;
+
+      allpass_input = inputs[out_pointer];
+      out_pointer++;
+      if (out_pointer == ALLPASS_BUF_SIZE) {
+        out_pointer = 0;
+      }
+
+      return last_out;
+    }
+    
+    float get_next_out()
+    {
+      if (do_next_out) {
+        next_out = -allpass_coefficient * last_out;
+        next_out += allpass_input + (allpass_coefficient * inputs[out_pointer]);
+        do_next_out = false;
+      }
+      return next_out;
+    }
+    
+    void set_max_delay_samples(int max_delay_samples)
+    {
+      // TODO: huh?
+      //if max_delay_samples >= self.inputs.size:
+      //  self.inputs = np.concatenate([self.inputs, np.zeros(max_delay_samples + 1)])
+    }
+    
+    void set_delay_samples(float new_delay_samples)
+    {
+      float fractional_out_pointer;
+      float alpha;
+      if ((new_delay_samples < 0.5) || (new_delay_samples > (ALLPASS_BUF_SIZE-2))) {
+        FATAL("delay samples %f", delay_samples);
+      }
+
+      delay_samples = new_delay_samples;
+
+      fractional_out_pointer = in_pointer - delay_samples + 1.0f; // out_pointer chases in_pointer
+      while (fractional_out_pointer < 0.f) {
+        fractional_out_pointer += ALLPASS_BUF_SIZE;
+      }
+      out_pointer = fractional_out_pointer; // cast from float to int.  TODO: test this works.
+      if (out_pointer == ALLPASS_BUF_SIZE) {
+        out_pointer = 0;
+      }
+      alpha = 1.0 + out_pointer - fractional_out_pointer; // fractional part
+
+      if (alpha < 0.5) {
+        // The optimal range for alpha is about 0.5 - 1.5 in order to
+        // achieve the flattest phase delay response.
+        out_pointer++;
+        if (out_pointer >= ALLPASS_BUF_SIZE) {
+          out_pointer -= ALLPASS_BUF_SIZE;
+        }
+        alpha += 1.0;
+      }
+
+      allpass_coefficient = (1.0 - alpha) / (1.0 + alpha);
+    }
+    
+    void clear()
+    {
+      for(int i = 0; i < ALLPASS_BUF_SIZE; i++) {
+        inputs[i] = 0.0f;
+      }
+      allpass_input = 0.0f;
+    }
+    
+    float tap_out(int tap_delay) {
+      int tap = in_pointer - tap_delay - 1;
+      while (tap < 0) {
+        tap += ALLPASS_BUF_SIZE;
+      }
+      return inputs[tap];
+    }
+
+    void tap_in(float value, int tap_delay) {
+      int tap = in_pointer - tap_delay - 1;
+      while (tap < 0) {
+        tap += ALLPASS_BUF_SIZE;
+      }
+      inputs[tap] = value;
+    }
+
+  };
+  
   rack::dsp::BiquadFilter master_dcFilter;
   static const int POLY_NUM = 16;
   struct Engine {
@@ -178,9 +319,9 @@ struct Interferometer : Module {
       // store away current sample.
       eng[ch].last_trig = trigger;
       
-      if (eng[ch].trig_state == 1) {
-        hammer_pulse_and_gain(1567.98, 0.9, &eng[ch]);
-      }
+      //if (eng[ch].trig_state == 1) {
+      //  hammer_pulse_and_gain(1567.98, 0.9, &eng[ch]);
+      //}
 
       // if we are currently triggered and outputting an impulse,
       if (eng[ch].trig_state != TRIG_OFF) {
