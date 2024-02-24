@@ -29,7 +29,151 @@ struct TAllpassFilter : rack::dsp::IIRFilter<2, 2, T> {
 };
 typedef TAllpassFilter<float> AllpassFilter;
 
+#define ALLPASS_BUF_SIZE (100000)
 
+struct TAllpassDelay {
+  // Translation to c++ of:
+  // https://github.com/khiner/notebooks/blob/master/AllpassDelay.py
+  
+  // This class implements a fractional-length digital delay-line using
+  // a first-order allpass filter.  If the delay and maximum length are
+  // not specified during instantiation, a fixed maximum length of 4095
+  // and a delay of 0.5 is set.
+
+  // An allpass filter has unity magnitude gain but variable phase
+  // delay properties, making it useful in achieving fractional delays
+  // without affecting a signal's frequency magnitude response.  In
+  // order to achieve a maximally flat phase delay response, the
+  // minimum delay possible in this implementation is limited to a
+  // value of 0.5.
+  
+  //int max_delay_samples;
+  float *inputs;
+  float last_out;
+  float next_out;
+  int in_pointer;
+  int out_pointer;
+  float allpass_input;
+  bool do_next_out;
+  float delay_samples;
+  float allpass_coefficient;
+  
+  TAllpassDelay()
+  {
+    // Writing before reading allows delays from 0 to length-1. 
+    inputs = new float[ALLPASS_BUF_SIZE]();
+    last_out = 0.0;
+    next_out = 0.0;
+    in_pointer = 0;
+    set_delay_samples(200.0);  // bogus initial value.
+    allpass_input = 0.0;
+    do_next_out = true;
+  }
+  
+  float tick(float in_sample=0.0)
+  {
+    inputs[in_pointer] = in_sample;
+    in_pointer++;
+    if (in_pointer == ALLPASS_BUF_SIZE) {
+      in_pointer = 0;
+    }
+
+    last_out = get_next_out();
+    do_next_out = true;
+
+    allpass_input = inputs[out_pointer];
+    out_pointer++;
+    if (out_pointer == ALLPASS_BUF_SIZE) {
+      out_pointer = 0;
+    }
+
+    return last_out;
+  }
+  
+  float get_next_out()
+  {
+    if (do_next_out) {
+      next_out = -allpass_coefficient * last_out;
+      next_out += allpass_input + (allpass_coefficient * inputs[out_pointer]);
+      do_next_out = false;
+    }
+    return next_out;
+  }
+  
+  void set_max_delay_samples(int max_delay_samples)
+  {
+    // TODO: huh?
+    //if max_delay_samples >= self.inputs.size:
+    //  self.inputs = np.concatenate([self.inputs, np.zeros(max_delay_samples + 1)])
+  }
+  
+  void set_delay_samples(float new_delay_samples)
+  {
+    float fractional_out_pointer;
+    float alpha;
+    
+    INFO("new_delay_samples: %f", new_delay_samples);
+    
+    if ((new_delay_samples < 0.5) || (new_delay_samples > (ALLPASS_BUF_SIZE-2))) {
+      FATAL("delay samples %f", delay_samples);
+    }
+
+    delay_samples = new_delay_samples;
+
+    fractional_out_pointer = in_pointer - delay_samples + 1.0f; // out_pointer chases in_pointer
+    while (fractional_out_pointer < 0.f) {
+      fractional_out_pointer += ALLPASS_BUF_SIZE;
+    }
+    out_pointer = fractional_out_pointer; // cast from float to int.  TODO: test this works.
+    if (out_pointer == ALLPASS_BUF_SIZE) {
+      out_pointer = 0;
+    }
+    alpha = 1.0 + out_pointer - fractional_out_pointer; // fractional part
+
+    if (alpha < 0.5) {
+      // The optimal range for alpha is about 0.5 - 1.5 in order to
+      // achieve the flattest phase delay response.
+      out_pointer++;
+      if (out_pointer >= ALLPASS_BUF_SIZE) {
+        out_pointer -= ALLPASS_BUF_SIZE;
+      }
+      alpha += 1.0;
+    }
+
+    allpass_coefficient = (1.0 - alpha) / (1.0 + alpha);
+    INFO("allpass_coefficient: %f", allpass_coefficient);
+    INFO("in_pointer: %d", in_pointer);
+    INFO("out_pointer: %d", out_pointer);
+  }
+  
+  void clear()
+  {
+    for(int i = 0; i < ALLPASS_BUF_SIZE; i++) {
+      inputs[i] = 0.0f;
+    }
+    allpass_input = 0.0f;
+  }
+  
+  float tap_out(int tap_delay) {
+    int tap = in_pointer - tap_delay - 1;
+    while (tap < 0) {
+      tap += ALLPASS_BUF_SIZE;
+    }
+    return inputs[tap];
+  }
+
+  void tap_in(float value, int tap_delay) {
+    int tap = in_pointer - tap_delay - 1;
+    while (tap < 0) {
+      tap += ALLPASS_BUF_SIZE;
+    }
+    inputs[tap] = value;
+  }
+
+};
+typedef TAllpassDelay AllpassDelay;
+  
+  
 struct Interferometer : Module {
   float phase = 0.f;
   float blinkPhase = 0.f;
@@ -73,154 +217,23 @@ struct Interferometer : Module {
   // TODO: Add Allpass Delay.
   // https://github.com/khiner/notebooks/blob/3a384115bc55bdd0e0b0f784c313d22caf09c987/AllpassDelay.py#L15
 
-#define ALLPASS_BUF_SIZE (100000)
 
-  struct TAllpassDelay {
-    // Translation to c++ of:
-    // https://github.com/khiner/notebooks/blob/master/AllpassDelay.py
-    
-    // This class implements a fractional-length digital delay-line using
-    // a first-order allpass filter.  If the delay and maximum length are
-    // not specified during instantiation, a fixed maximum length of 4095
-    // and a delay of 0.5 is set.
-
-    // An allpass filter has unity magnitude gain but variable phase
-    // delay properties, making it useful in achieving fractional delays
-    // without affecting a signal's frequency magnitude response.  In
-    // order to achieve a maximally flat phase delay response, the
-    // minimum delay possible in this implementation is limited to a
-    // value of 0.5.
-    
-    //int max_delay_samples;
-    float *inputs;
-    float last_out;
-    float next_out;
-    int in_pointer;
-    int out_pointer;
-    float allpass_input;
-    bool do_next_out;
-    float delay_samples;
-    float allpass_coefficient;
-    
-    TAllpassDelay(int delay_samples)
-    {
-      // Writing before reading allows delays from 0 to length-1. 
-      inputs = new float[ALLPASS_BUF_SIZE]();
-      last_out = 0.0;
-      next_out = 0.0;
-      in_pointer = 0;
-      set_delay_samples(delay_samples);
-      allpass_input = 0.0;
-      do_next_out = true;
-    }
-    
-    float tick(float in_sample=0.0)
-    {
-      inputs[in_pointer] = in_sample;
-      in_pointer++;
-      if (in_pointer == ALLPASS_BUF_SIZE) {
-        in_pointer = 0;
-      }
-
-      last_out = get_next_out();
-      do_next_out = true;
-
-      allpass_input = inputs[out_pointer];
-      out_pointer++;
-      if (out_pointer == ALLPASS_BUF_SIZE) {
-        out_pointer = 0;
-      }
-
-      return last_out;
-    }
-    
-    float get_next_out()
-    {
-      if (do_next_out) {
-        next_out = -allpass_coefficient * last_out;
-        next_out += allpass_input + (allpass_coefficient * inputs[out_pointer]);
-        do_next_out = false;
-      }
-      return next_out;
-    }
-    
-    void set_max_delay_samples(int max_delay_samples)
-    {
-      // TODO: huh?
-      //if max_delay_samples >= self.inputs.size:
-      //  self.inputs = np.concatenate([self.inputs, np.zeros(max_delay_samples + 1)])
-    }
-    
-    void set_delay_samples(float new_delay_samples)
-    {
-      float fractional_out_pointer;
-      float alpha;
-      if ((new_delay_samples < 0.5) || (new_delay_samples > (ALLPASS_BUF_SIZE-2))) {
-        FATAL("delay samples %f", delay_samples);
-      }
-
-      delay_samples = new_delay_samples;
-
-      fractional_out_pointer = in_pointer - delay_samples + 1.0f; // out_pointer chases in_pointer
-      while (fractional_out_pointer < 0.f) {
-        fractional_out_pointer += ALLPASS_BUF_SIZE;
-      }
-      out_pointer = fractional_out_pointer; // cast from float to int.  TODO: test this works.
-      if (out_pointer == ALLPASS_BUF_SIZE) {
-        out_pointer = 0;
-      }
-      alpha = 1.0 + out_pointer - fractional_out_pointer; // fractional part
-
-      if (alpha < 0.5) {
-        // The optimal range for alpha is about 0.5 - 1.5 in order to
-        // achieve the flattest phase delay response.
-        out_pointer++;
-        if (out_pointer >= ALLPASS_BUF_SIZE) {
-          out_pointer -= ALLPASS_BUF_SIZE;
-        }
-        alpha += 1.0;
-      }
-
-      allpass_coefficient = (1.0 - alpha) / (1.0 + alpha);
-    }
-    
-    void clear()
-    {
-      for(int i = 0; i < ALLPASS_BUF_SIZE; i++) {
-        inputs[i] = 0.0f;
-      }
-      allpass_input = 0.0f;
-    }
-    
-    float tap_out(int tap_delay) {
-      int tap = in_pointer - tap_delay - 1;
-      while (tap < 0) {
-        tap += ALLPASS_BUF_SIZE;
-      }
-      return inputs[tap];
-    }
-
-    void tap_in(float value, int tap_delay) {
-      int tap = in_pointer - tap_delay - 1;
-      while (tap < 0) {
-        tap += ALLPASS_BUF_SIZE;
-      }
-      inputs[tap] = value;
-    }
-
-  };
   
   rack::dsp::BiquadFilter master_dcFilter;
   static const int POLY_NUM = 16;
   struct Engine {
+  
+    AllpassDelay delay_buffer;
+    
     //float trigger_state = TRIG_OFF;
-    float buffer[BUF_SIZE];
+    // float buffer[BUF_SIZE];
     // location in the buffer where the head is.
-    int buf_head = 0;
+    // int buf_head = 0;
+    
     // trigger state
     int trig_state = 0;
     // create a biquad filter to control the feedback through the delay filter.
-    float   delay_line_len = 100;
+    //float   delay_line_len = 100;
     rack::dsp::BiquadFilter delayFilter;
     rack::dsp::BiquadFilter dcFilter;
     float last_trig = 0.f;
@@ -293,9 +306,9 @@ struct Interferometer : Module {
     // loop through channels
     for (int ch=0; ch<POLY_NUM; ch++) {
     
-      if (delay_fractional == 1) {
-        eng[ch].dispersion_enabled = true;
-      }
+      //if (delay_fractional == 1) {
+      //  eng[ch].dispersion_enabled = true;
+      //}
       
       float co = 0.f; // output for the given channel.
       float ch_decay = decay;
@@ -337,8 +350,7 @@ struct Interferometer : Module {
         // if the note value has changed, update the dispersion filter
         if (abs(freq - eng[ch].curr_f0) > 0.1) {
           float B = b_from_freq(freq);
-          INFO("B = %f",B);
-          // TODO: Real value of B.  Comes from Figure 7.
+          //INFO("B = %f",B);
           update_dispersion_values(freq, eng[ch].M, B, (float)args.sampleRate, &eng[ch]);
           
           // update all M allpass filters in the cascade.
@@ -347,12 +359,17 @@ struct Interferometer : Module {
           }
           
           // set the delay line length accordingly
-          eng[ch].delay_line_len = args.sampleRate/freq;
-          INFO("delay line len: %f", eng[ch].delay_line_len);
+          //eng[ch].delay_line_len = args.sampleRate/freq;
+          //INFO("delay line len: %f", eng[ch].delay_line_len);
           // retune due to dispersion filter delay at the primary frequency.
           if (eng[ch].dispersion_enabled) {
-            eng[ch].delay_line_len -= eng[ch].Df0;
-            INFO("delay line len updated: %f", eng[ch].delay_line_len);
+            //eng[ch].delay_line_len -= eng[ch].Df0;
+            INFO("dispersion enabled - f = %f", args.sampleRate/freq);
+            eng[ch].delay_buffer.set_delay_samples(args.sampleRate/freq - eng[ch].Df0);
+            //INFO("delay line len updated: %f", eng[ch].delay_line_len);
+          } else {
+            INFO("dispersion disabled - f = %f", args.sampleRate/freq);
+            eng[ch].delay_buffer.set_delay_samples(args.sampleRate/freq);
           }
         
         }
@@ -365,13 +382,15 @@ struct Interferometer : Module {
         //if (freq>2000.0) freq=2000.0;
 
         // set the delay line length accordingly
-        eng[ch].delay_line_len = args.sampleRate/freq;
+        //eng[ch].delay_line_len = args.sampleRate/freq;
+        //eng[ch].delay_buffer.set_delay_samples(args.sampleRate/freq);
         //INFO("delay line len: %f", eng[ch].delay_line_len);
         // retune due to dispersion filter delay at the primary frequency.
-        if (eng[ch].dispersion_enabled) {
-          eng[ch].delay_line_len -= eng[ch].Df0;
+        //if (eng[ch].dispersion_enabled) {
+          //eng[ch].delay_line_len -= eng[ch].Df0;
+          //eng[ch].delay_buffer.set_delay_samples(args.sampleRate/freq - eng[ch].Df0);
           //INFO("delay line len updated: %f", eng[ch].delay_line_len);
-        }
+        //}
 
         // random
         //buffer[buf_head] = 5.0f * (random::uniform()-0.5f);
@@ -401,25 +420,26 @@ struct Interferometer : Module {
       }
       // TODO: handle when gate goes away!
 
+      delay_fractional = 1;
       if (delay_fractional == 0) {
       
-        int tap = eng[ch].buf_head - eng[ch].delay_line_len ;
-        if (tap < 0) tap += BUF_SIZE;
+        //int tap = eng[ch].buf_head - eng[ch].delay_line_len ;
+        //if (tap < 0) tap += BUF_SIZE;
         // run the delay filter and decay
-        co += (1.0f - ch_decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
-        eng[ch].dispersion_enabled = false;
+        //co += (1.0f - ch_decay) * eng[ch].delayFilter.process(eng[ch].buffer[tap]);
+        //eng[ch].dispersion_enabled = false;
       } else if (delay_fractional == 1) {
       
         // handle non-integer delay line value (naively), without sync()
-        int tap1 = floor(eng[ch].delay_line_len);
-        int tap2 = tap1 + 1.0f;
-        int loc1 = eng[ch].buf_head - tap1;
-        int loc2 = eng[ch].buf_head - tap2;
-        if (loc1 < 0) loc1 += BUF_SIZE;
-        if (loc2 < 0) loc2 += BUF_SIZE;
-        float ratio2 = eng[ch].delay_line_len - tap1;
-        float ratio1 = 1.0f - ratio2;
-        float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2;
+        //int tap1 = floor(eng[ch].delay_line_len);
+        //int tap2 = tap1 + 1.0f;
+        //int loc1 = eng[ch].buf_head - tap1;
+        //int loc2 = eng[ch].buf_head - tap2;
+        //if (loc1 < 0) loc1 += BUF_SIZE;
+        //if (loc2 < 0) loc2 += BUF_SIZE;
+        //float ratio2 = eng[ch].delay_line_len - tap1;
+        //float ratio1 = 1.0f - ratio2;
+        float feedback_val = eng[ch].delay_buffer.get_next_out();
         co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
         for (int j = 0; j < eng[ch].M; j++) {
           co = eng[ch].dispersionFilter[j].process(co);
@@ -441,70 +461,71 @@ struct Interferometer : Module {
         // https://www.mathworks.com/help/dsp/ug/design-of-
         //         fractional-delay-fir-filters.html
         // might not be the right way to go.
-        int tap1 = floor(eng[ch].delay_line_len);
-        int tap2 = tap1 + 1;
-        int tap3 = tap1 - 1;
-        int tap4 = tap1 - 2;
-        int tap5 = tap1 + 2;
-        int loc1 = eng[ch].buf_head - tap1;
-        int loc2 = eng[ch].buf_head - tap2;
-        int loc3 = eng[ch].buf_head - tap3;
-        int loc4 = eng[ch].buf_head - tap4;
-        int loc5 = eng[ch].buf_head - tap5;
+        //int tap1 = floor(eng[ch].delay_line_len);
+        //int tap2 = tap1 + 1;
+        //int tap3 = tap1 - 1;
+        //int tap4 = tap1 - 2;
+        //int tap5 = tap1 + 2;
+        //int loc1 = eng[ch].buf_head - tap1;
+        //int loc2 = eng[ch].buf_head - tap2;
+        //int loc3 = eng[ch].buf_head - tap3;
+        //int loc4 = eng[ch].buf_head - tap4;
+        //int loc5 = eng[ch].buf_head - tap5;
         
         // loc1 could be both overflow and underflow
-        if (loc1 < 0) loc1 += BUF_SIZE;
-        if (loc1 >= BUF_SIZE) loc1 -= BUF_SIZE;
+        //if (loc1 < 0) loc1 += BUF_SIZE;
+        //if (loc1 >= BUF_SIZE) loc1 -= BUF_SIZE;
         // loc2 (strictly add) could be overflow
-        if (loc2 < 0) loc2 += BUF_SIZE;
-        if (loc2 >= BUF_SIZE) loc2 -= BUF_SIZE;
+        //if (loc2 < 0) loc2 += BUF_SIZE;
+        //if (loc2 >= BUF_SIZE) loc2 -= BUF_SIZE;
         // loc3 (strictly subract) could (only) be underflow
-        if (loc3 < 0) loc3 += BUF_SIZE;
-        if (loc3 >= BUF_SIZE) loc3 -= BUF_SIZE;
-        if (loc4 < 0) loc4 += BUF_SIZE;
-        if (loc4 >= BUF_SIZE) loc4 -= BUF_SIZE;
-        if (loc5 < 0) loc5 += BUF_SIZE;
-        if (loc5 >= BUF_SIZE) loc5 -= BUF_SIZE;
+        //if (loc3 < 0) loc3 += BUF_SIZE;
+        //if (loc3 >= BUF_SIZE) loc3 -= BUF_SIZE;
+        //if (loc4 < 0) loc4 += BUF_SIZE;
+        //if (loc4 >= BUF_SIZE) loc4 -= BUF_SIZE;
+        //if (loc5 < 0) loc5 += BUF_SIZE;
+        //if (loc5 >= BUF_SIZE) loc5 -= BUF_SIZE;
         
-        float ratio1;
-        if (tap1-eng[ch].delay_line_len == 0.0)
-          ratio1 = 1.0;
-        else 
-          ratio1 = sin((tap1-eng[ch].delay_line_len)*M_PI) / ((tap1-eng[ch].delay_line_len)*M_PI);
-        float ratio2 = sin((tap2-eng[ch].delay_line_len)*M_PI) / ((tap2-eng[ch].delay_line_len)*M_PI);
-        float ratio3 = sin((tap3-eng[ch].delay_line_len)*M_PI) / ((tap3-eng[ch].delay_line_len)*M_PI);
-        float ratio4 = sin((tap4-eng[ch].delay_line_len)*M_PI) / ((tap4-eng[ch].delay_line_len)*M_PI);
-        float ratio5 = sin((tap5-eng[ch].delay_line_len)*M_PI) / ((tap5-eng[ch].delay_line_len)*M_PI);
+        //float ratio1;
+        //if (tap1-eng[ch].delay_line_len == 0.0)
+        //  ratio1 = 1.0;
+        //else 
+        //  ratio1 = sin((tap1-eng[ch].delay_line_len)*M_PI) / ((tap1-eng[ch].delay_line_len)*M_PI);
+        //float ratio2 = sin((tap2-eng[ch].delay_line_len)*M_PI) / ((tap2-eng[ch].delay_line_len)*M_PI);
+        //float ratio3 = sin((tap3-eng[ch].delay_line_len)*M_PI) / ((tap3-eng[ch].delay_line_len)*M_PI);
+        //float ratio4 = sin((tap4-eng[ch].delay_line_len)*M_PI) / ((tap4-eng[ch].delay_line_len)*M_PI);
+        //float ratio5 = sin((tap5-eng[ch].delay_line_len)*M_PI) / ((tap5-eng[ch].delay_line_len)*M_PI);
         
-        float sum = ratio1 + ratio2 + ratio3 + ratio4 + ratio5;
-        ratio1 = ratio1/sum;
-        ratio2 = ratio2/sum;
-        ratio3 = ratio3/sum;
-        ratio4 = ratio4/sum;
-        ratio5 = ratio5/sum;
+        //float sum = ratio1 + ratio2 + ratio3 + ratio4 + ratio5;
+        //ratio1 = ratio1/sum;
+        //ratio2 = ratio2/sum;
+        //ratio3 = ratio3/sum;
+        //ratio4 = ratio4/sum;
+        //ratio5 = ratio5/sum;
         
         // all the above would only need to be updated if the frequency is updated.
         
         
-        float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2 + 
-                             eng[ch].buffer[loc3] * ratio3 + eng[ch].buffer[loc4] * ratio4 + 
-                             eng[ch].buffer[loc5] * ratio5;
+        //float feedback_val = eng[ch].buffer[loc1] * ratio1 + eng[ch].buffer[loc2] * ratio2 + 
+        //                     eng[ch].buffer[loc3] * ratio3 + eng[ch].buffer[loc4] * ratio4 + 
+        //                     eng[ch].buffer[loc5] * ratio5;
                              
-        co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
-        eng[ch].dispersion_enabled = false;
+        //co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
+        //eng[ch].dispersion_enabled = false;
       }
       
       // apply that output DC block filter
       co = eng[ch].dcFilter.process(co);
       
       // store this channel's output at the head of the delay line buffer
-      eng[ch].buffer[eng[ch].buf_head] = co;
+      //eng[ch].buffer[eng[ch].buf_head] = co;
       
       // sum this channel's output into the master output
       y += co;
       
       // update the head before we leave.
-      eng[ch].buf_head = (eng[ch].buf_head+1) % BUF_SIZE;
+      //eng[ch].buf_head = (eng[ch].buf_head+1) % BUF_SIZE;
+      eng[ch].delay_buffer.tick(co);
       eng[ch].dispersion_enabled = false;
     }
     
@@ -561,7 +582,7 @@ struct Interferometer : Module {
     static const float trt = 1.0594630943592953f; // 2^(1/2)
     float Ikey = std::log(f0 * trt / 27.5f) / std::log(trt);
     float D = std::exp(Cd - Ikey*kd);
-    INFO("update dispersion D %f", D);
+    //INFO("update dispersion D %f", D);
     float a1 = (1.f - D)/(1.f + D); // D >= 0, so a1 >= 0
     // don't allow a1 above 0.
     if (a1 >= 0.f) a1 = 0.f;
@@ -572,7 +593,7 @@ struct Interferometer : Module {
     Df0 *= M;  // the above delay is for ONE filter, we cascade M of them.
     // the does align with figure 9 in the paper.
     
-    INFO("update dispersion f %f, Df0 %f, a1 %f", f0, Df0, a1);
+    //INFO("update dispersion f %f, Df0 %f, a1 %f", f0, Df0, a1);
     e->Df0 = Df0; // store the delay in the engine data.
     e->a1 = a1;   // store the filter coefficient in the engine data.
     e->curr_f0 = f0;  // we're now updated to this.  don't redo if not needed.
@@ -633,7 +654,8 @@ struct Interferometer : Module {
       // stop any not initiation
       eng[ch].trig_state = 0;
       // clear the delay buffer
-      for (int i = 0; i < BUF_SIZE; i++) eng[ch].buffer[i] = 0.f;
+      //for (int i = 0; i < BUF_SIZE; i++) eng[ch].buffer[i] = 0.f;
+      eng[ch].delay_buffer.clear();
     }
   }
   
