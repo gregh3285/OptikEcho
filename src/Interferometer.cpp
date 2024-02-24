@@ -185,6 +185,7 @@ struct Interferometer : Module {
   int exciter=0;
   int delay_fractional=0;
   bool dispersion_enabled = true;
+  float sample_rate;
   //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
@@ -272,7 +273,9 @@ struct Interferometer : Module {
     INFO("dcFilter b[0]; %f",master_dcFilter.b[0]);
     INFO("dcFilter b[1]; %f",master_dcFilter.b[1]);
     INFO("dcFilter b[2]; %f",master_dcFilter.b[2]);
-    // K = 0.001428, Q = 0.5, 
+    
+    // get the sample rate.
+    sample_rate = APP->engine->getSampleRate();
     
     // normalized frequency for filter is cutoff_freq/sample_rate. goes unstable above 0.5.
     // frequency, q, gain_labeled_as_v.  
@@ -287,15 +290,41 @@ struct Interferometer : Module {
     if (soundboard_size < 0) {
       FATAL("soundboard size < 0");
     }
-    INFO("strike position 30.0: %f", strike_position(30.0));
-    INFO("strike position 400.0: %f", strike_position(400.0));
-    INFO("strike position 500.0: %f", strike_position(500.0));
-    INFO("strike position 1000.0: %f", strike_position(1000.0));
-    INFO("strike position 2000.0: %f", strike_position(2000.0));
-    INFO("strike position 4000.0: %f", strike_position(4000.0));
+    //INFO("strike position 30.0: %f", strike_position(30.0));
+    //INFO("strike position 400.0: %f", strike_position(400.0));
+    //INFO("strike position 500.0: %f", strike_position(500.0));
+    //INFO("strike position 1000.0: %f", strike_position(1000.0));
+    //INFO("strike position 2000.0: %f", strike_position(2000.0));
+    //INFO("strike position 4000.0: %f", strike_position(4000.0));
     
   }
 
+  void set_frequency(float freq, struct Engine *e)
+  {
+    // this function is only called if an update is made to the frequency.
+    // if no value change is made, do nothing
+    float B = b_from_freq(freq);
+    //INFO("B = %f",B);
+    update_dispersion_values(freq, e->M, B, sample_rate, e);
+    
+    // update all M allpass filters in the cascade.
+    for (int j = 0; j < e->M; j++) {
+      e->dispersionFilter[j].setParameter(e->a1);
+    }
+    
+    // set the delay line length accordingly   
+    // retune due to dispersion filter delay at the primary frequency.
+    if (dispersion_enabled) {
+      INFO("dispersion enabled - f = %f", freq);
+      e->delay_buffer.set_delay_samples(sample_rate/freq - e->Df0);
+      //INFO("delay line len updated: %f", eng[ch].delay_line_len);
+    } else {
+      INFO("dispersion disabled - f = %f", freq);
+      e->delay_buffer.set_delay_samples(sample_rate/freq);
+    }
+    
+  }
+  
   void process(const ProcessArgs &args) override {
 
     float decay;
@@ -328,6 +357,7 @@ struct Interferometer : Module {
       float ch_decay = decay;
     
       // Q critically damped is 0.5
+      // TODO: No longer useful?
       eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
     
       // a trigger a rising edge.        
@@ -363,31 +393,7 @@ struct Interferometer : Module {
         
         // if the note value has changed, update the dispersion filter
         if (abs(freq - eng[ch].curr_f0) > 0.1) {
-          float B = b_from_freq(freq);
-          //INFO("B = %f",B);
-          update_dispersion_values(freq, eng[ch].M, B, (float)args.sampleRate, &eng[ch]);
-          
-          // update all M allpass filters in the cascade.
-          for (int j = 0; j < eng[ch].M; j++) {
-            eng[ch].dispersionFilter[j].setParameter(eng[ch].a1);
-          }
-          
-          // set the delay line length accordingly
-          //eng[ch].delay_line_len = args.sampleRate/freq;
-          //INFO("delay line len: %f", eng[ch].delay_line_len);
-          // retune due to dispersion filter delay at the primary frequency.
-          if (dispersion_enabled) {
-            //eng[ch].delay_line_len -= eng[ch].Df0;
-            INFO("dispersion enabled - f = %f", freq);
-            eng[ch].delay_buffer.set_delay_samples(args.sampleRate/freq - eng[ch].Df0);
-            //INFO("delay line len updated: %f", eng[ch].delay_line_len);
-          } else {
-            INFO("dispersion disabled - f = %f", freq);
-            eng[ch].delay_buffer.set_delay_samples(args.sampleRate/freq);
-          }
-          
-          
-        
+          set_frequency(freq, &eng[ch]);        
         }
 
         // random
