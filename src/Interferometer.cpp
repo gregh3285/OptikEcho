@@ -27,12 +27,12 @@ struct TAllpassFilter : rack::dsp::IIRFilter<2, 2, T> {
 };
 typedef TAllpassFilter<float> AllpassFilter;
 
-template <typename T = float>
-struct TSecondOrderFilter : rack::dsp::IIRFilter<3, 3, T> {
-    TSecondOrderFilter() {
-    }
-};
-typedef TSecondOrderFilter<float> SecondOrderFilter;
+//template <typename T = float>
+//struct TSecondOrderFilter : rack::dsp::IIRFilter<3, 3, T> {
+//    TSecondOrderFilter() {
+//    }
+//};
+//typedef TSecondOrderFilter<float> SecondOrderFilter;
 
 #define ALLPASS_BUF_SIZE (100000)
 
@@ -223,6 +223,15 @@ struct Interferometer : Module {
   struct Engine {
   
     AllpassDelay delay_buffer;
+    
+    // sustain, brightness, coupled string, hammer position
+    AllpassDelay delay_v;
+    AllpassDelay delay_h;
+    float brightness = 0.6;
+    float detuning = 0.94;
+    float coupling_amount = 0.01;
+    float t60_initial; 
+    float t60_sustain;
         
     // trigger state
     int trig_state = 0;
@@ -258,6 +267,13 @@ struct Interferometer : Module {
     // See: https://community.vcvrack.com/t/dc-blocker-in-rack-api/8419/6
     
     master_dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 20.6f/44000.0, 0.5, 0.0);
+    INFO("dcFilter a[0]; %f",master_dcFilter.a[0]);
+    INFO("dcFilter a[1]; %f",master_dcFilter.a[1]);
+    INFO("dcFilter b[0]; %f",master_dcFilter.b[0]);
+    INFO("dcFilter b[1]; %f",master_dcFilter.b[1]);
+    INFO("dcFilter b[2]; %f",master_dcFilter.b[2]);
+    // K = 0.001428, Q = 0.5, 
+    
     // normalized frequency for filter is cutoff_freq/sample_rate. goes unstable above 0.5.
     // frequency, q, gain_labeled_as_v.  
     for (int ch = 0; ch < POLY_NUM; ch++) {
@@ -271,6 +287,12 @@ struct Interferometer : Module {
     if (soundboard_size < 0) {
       FATAL("soundboard size < 0");
     }
+    INFO("strike position 30.0: %f", strike_position(30.0));
+    INFO("strike position 400.0: %f", strike_position(400.0));
+    INFO("strike position 500.0: %f", strike_position(500.0));
+    INFO("strike position 1000.0: %f", strike_position(1000.0));
+    INFO("strike position 2000.0: %f", strike_position(2000.0));
+    INFO("strike position 4000.0: %f", strike_position(4000.0));
     
   }
 
@@ -363,6 +385,8 @@ struct Interferometer : Module {
             INFO("dispersion disabled - f = %f", freq);
             eng[ch].delay_buffer.set_delay_samples(args.sampleRate/freq);
           }
+          
+          
         
         }
 
@@ -432,7 +456,7 @@ struct Interferometer : Module {
   void sustain_brightness_filter(float sustain_seconds, 
                                  float brightness, 
                                  float frequency,
-                                 SecondOrderFilter *loop_filter)
+                                 rack::dsp::BiquadFilter *loop_filter)
   {
     float g0 = exp(-6.91 / (sustain_seconds * frequency));
     float b0 = g0 * (1 + brightness) / 2.0;
@@ -470,6 +494,25 @@ struct Interferometer : Module {
     *t60_sustain = pow(10.0f, (low_freq_log10_t60s_s - t60_scalar * (low_freq_log10_t60s_s - log10(0.3f))));
     
     return;
+  }
+  
+  // Striking positions range from 0.122 (A0) to 0.115 (A4) to 0.08 (C8)
+  // Harold A. Conklin, Jr.
+  // "Design and tone in the mechanoacoustic piano. Part I. Piano hammers
+  // and tonal effects" Journal of the Acoustical Society of America
+  // Vol. 99, No. 6, June 1996, p. 3293
+  float strike_position(float frequency)
+  {
+    float const A4_FREQUENCY = 440.0;
+    float strike_scalar;
+    if (frequency <= A4_FREQUENCY) {
+      strike_scalar = (log10(frequency) - log10(LOWEST_FREQUENCY)) / (log10(A4_FREQUENCY) - log10(LOWEST_FREQUENCY));
+      return (0.122 - strike_scalar * (0.122f - 0.115f));
+    }
+    else {
+      strike_scalar = (HIGHEST_FREQUENCY - frequency) / (HIGHEST_FREQUENCY - A4_FREQUENCY);
+      return (0.08 + strike_scalar * (0.115f - 0.08f));
+    }
   }
   
   // this function is used to calculate B to calculate dispersion filter parameters.
