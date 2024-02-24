@@ -5,8 +5,6 @@
 #include <stdint.h>
 #include <dsp/filter.hpp>
 
-// $Id: Interferometer.cpp,v 1.4 2024/02/10 13:33:44 gregh Exp gregh $
-
 int load(float *extbuff); // load the soundboard file.
 
 // instantiate an one pole filter for the allpass for dispersion
@@ -29,6 +27,13 @@ struct TAllpassFilter : rack::dsp::IIRFilter<2, 2, T> {
 };
 typedef TAllpassFilter<float> AllpassFilter;
 
+template <typename T = float>
+struct TSecondOrderFilter : rack::dsp::IIRFilter<3, 3, T> {
+    TSecondOrderFilter() {
+    }
+};
+typedef TSecondOrderFilter<float> SecondOrderFilter;
+
 #define ALLPASS_BUF_SIZE (100000)
 
 struct TAllpassDelay {
@@ -47,7 +52,6 @@ struct TAllpassDelay {
   // minimum delay possible in this implementation is limited to a
   // value of 0.5.
   
-  //int max_delay_samples;
   float *inputs;
   float last_out;
   float next_out;
@@ -100,12 +104,12 @@ struct TAllpassDelay {
     return next_out;
   }
   
-  void set_max_delay_samples(int max_delay_samples)
-  {
+  //void set_max_delay_samples(int max_delay_samples)
+  //{
     // TODO: huh?
     //if max_delay_samples >= self.inputs.size:
     //  self.inputs = np.concatenate([self.inputs, np.zeros(max_delay_samples + 1)])
-  }
+  //}
   
   void set_delay_samples(float new_delay_samples)
   {
@@ -422,6 +426,53 @@ struct Interferometer : Module {
     outputs[OUT_OUTPUT].setVoltage(y);
     
   }
+  
+  // Length-3 FIR filter with sustain and brightness controls
+  // From https://ccrma.stanford.edu/~jos/pasp/Length_FIR_Loop_Filter.html
+  void sustain_brightness_filter(float sustain_seconds, 
+                                 float brightness, 
+                                 float frequency,
+                                 SecondOrderFilter *loop_filter)
+  {
+    float g0 = exp(-6.91 / (sustain_seconds * frequency));
+    float b0 = g0 * (1 + brightness) / 2.0;
+    float b1 = g0 * (1 - brightness) / 4.0;
+    //loop_filter = TwoZeroFilter()
+    //loop_filter.set_coefficients(b1, b0, b1);
+    loop_filter->b[0] = b1;
+    loop_filter->b[1] = b0;
+    loop_filter->b[2] = b1;
+  
+    //return loop_filter
+  }
+  
+  // Initial t60s range from 15 seconds (A0) to 0.3 seconds (C8)
+  // Sustained t60s range from 50 seconds (A0) to 0.3 seconds (C8)
+  // From:
+  // Fletcher and Rossing "The Physics of Musical Instruments", 2nd edition
+  // Springer-Verlag, New York, 1998, p. 384
+  void initial_and_sustained_t60s(float frequency,
+                                  float *t60_initial,
+                                  float *t60_sustain,
+                                  float max_initial_t60_sec=15.0, 
+                                  float max_sustained_t60_sec=50.0)
+  {
+    float low_freq_log10_t60s_i;
+    float low_freq_log10_t60s_s;
+    float t60_scalar;
+    
+    low_freq_log10_t60s_i = log10(max_initial_t60_sec);
+    low_freq_log10_t60s_s = log10(max_sustained_t60_sec);
+
+    t60_scalar = (frequency - LOWEST_FREQUENCY) / (HIGHEST_FREQUENCY - LOWEST_FREQUENCY);
+    
+    *t60_initial = pow(10.0f, (low_freq_log10_t60s_i - t60_scalar * (low_freq_log10_t60s_i - log10(0.3f))));
+    *t60_sustain = pow(10.0f, (low_freq_log10_t60s_s - t60_scalar * (low_freq_log10_t60s_s - log10(0.3f))));
+    
+    return;
+  }
+  
+  // this function is used to calculate B to calculate dispersion filter parameters.
   float b_from_freq(float freq)
   {
     // https://www.phys.unsw.edu.au/jw/notes.html
