@@ -180,6 +180,7 @@ struct Interferometer : Module {
   const int TRIG_OFF = 0;
   int exciter=0;
   int delay_fractional=0;
+  bool dispersion_enabled = true;
   //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
@@ -227,7 +228,6 @@ struct Interferometer : Module {
     float last_trig = 0.f;
     
     // dispersion filter
-    bool dispersion_enabled = false;
     float Df0 = 0.f;        // dispersion filter delay and fundamental.
     float a1 = 0.0f;
     float curr_f0 = NOT_A_NOTE;  // current note frequency.
@@ -350,7 +350,7 @@ struct Interferometer : Module {
           //eng[ch].delay_line_len = args.sampleRate/freq;
           //INFO("delay line len: %f", eng[ch].delay_line_len);
           // retune due to dispersion filter delay at the primary frequency.
-          if (eng[ch].dispersion_enabled) {
+          if (dispersion_enabled) {
             //eng[ch].delay_line_len -= eng[ch].Df0;
             INFO("dispersion enabled - f = %f", freq);
             eng[ch].delay_buffer.set_delay_samples(args.sampleRate/freq - eng[ch].Df0);
@@ -391,7 +391,7 @@ struct Interferometer : Module {
       
         float feedback_val = eng[ch].delay_buffer.get_next_out();
         co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
-        if (eng[ch].dispersion_enabled) {
+        if (dispersion_enabled) {
           for (int j = 0; j < eng[ch].M; j++) {
             co = eng[ch].dispersionFilter[j].process(co);
           }
@@ -411,7 +411,7 @@ struct Interferometer : Module {
       // update the head before we leave.
       //eng[ch].buf_head = (eng[ch].buf_head+1) % BUF_SIZE;
       eng[ch].delay_buffer.tick(co);
-      eng[ch].dispersion_enabled = false;
+      //eng[ch].dispersion_enabled = false;
     }
     
     // clamp outputs then output.
@@ -572,9 +572,9 @@ struct InterferometerWidget : ModuleWidget {
     Interferometer* module = getModule<Interferometer>();
 
     // Controls int Module::exciter
-    menu->addChild(createIndexPtrSubmenuItem("Exciter",
-	    {"Piano", "Decay Exponential"},
-	    &module->exciter));
+    menu->addChild(createIndexPtrSubmenuItem("Dispersion Enabled",
+	    {"False", "True"},
+	    &module->dispersion_enabled));
     // Controls int Module::fractional delay
     menu->addChild(createIndexPtrSubmenuItem("Fractional Delay",
 	    {"Integer", "Fractional", "Sync"},
