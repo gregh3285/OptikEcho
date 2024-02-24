@@ -183,7 +183,7 @@ struct Interferometer : Module {
   float blinkPhase = 0.f;
   const int TRIG_OFF = 0;
   int exciter=0;
-  int delay_fractional=0;
+  int loop_model=0;
   bool dispersion_enabled = true;
   float sample_rate;
   //static const int TRIG_ON = 1;
@@ -195,6 +195,10 @@ struct Interferometer : Module {
 #define NOT_A_NOTE (8675309.f);
   const float LOWEST_FREQUENCY = 27.5f;
   const float HIGHEST_FREQUENCY = 4186.0f;
+  
+  float brightness = 0.6;
+  float detuning = 0.94;
+  float coupling_amount = 0.01;
    
   // soundboard storage
   int soundboard_size = 0;
@@ -226,13 +230,15 @@ struct Interferometer : Module {
     AllpassDelay delay_buffer;
     
     // sustain, brightness, coupled string, hammer position
-    AllpassDelay delay_v;
-    AllpassDelay delay_h;
-    float brightness = 0.6;
-    float detuning = 0.94;
-    float coupling_amount = 0.01;
+    AllpassDelay delay_line_v;
+    AllpassDelay delay_line_h;
     float t60_initial; 
     float t60_sustain;
+    rack::dsp::BiquadFilter loop_filter_v;
+    rack::dsp::BiquadFilter loop_filter_h;
+    AllpassDelay strike_comb_delay;
+    float delay_line_out_v = 0;
+    float delay_line_out_h = 0;
         
     // trigger state
     int trig_state = 0;
@@ -247,6 +253,15 @@ struct Interferometer : Module {
     float curr_f0 = NOT_A_NOTE;  // current note frequency.
     static const int M = 8;
     AllpassFilter dispersionFilter[M];
+    // dispersion filtering for new loop with string coupling.
+    float Df0_v = 0.f;        // dispersion filter delay and fundamental.
+    float a1_v = 0.0f;
+    float curr_f0_v = NOT_A_NOTE;  // current note frequency.
+    float Df0_h = 0.f;        // dispersion filter delay and fundamental.
+    float a1_h = 0.0f;
+    float curr_f0_h = NOT_A_NOTE;  // current note frequency.
+    AllpassFilter dispersionFilter_v[M];
+    AllpassFilter dispersionFilter_h[M];
     
     // hammer pulse
     int pulse_length = 0;
@@ -296,11 +311,12 @@ struct Interferometer : Module {
     //INFO("strike position 1000.0: %f", strike_position(1000.0));
     //INFO("strike position 2000.0: %f", strike_position(2000.0));
     //INFO("strike position 4000.0: %f", strike_position(4000.0));
-    
   }
 
   void set_frequency(float freq, struct Engine *e)
   {
+    INFO("freq: %f", freq);
+    
     // this function is only called if an update is made to the frequency.
     // if no value change is made, do nothing
     float B = b_from_freq(freq);
@@ -310,6 +326,8 @@ struct Interferometer : Module {
     // update all M allpass filters in the cascade.
     for (int j = 0; j < e->M; j++) {
       e->dispersionFilter[j].setParameter(e->a1);
+      e->dispersionFilter_v[j].setParameter(e->a1_v);
+      e->dispersionFilter_h[j].setParameter(e->a1_h);
     }
     
     // set the delay line length accordingly   
@@ -318,11 +336,23 @@ struct Interferometer : Module {
       INFO("dispersion enabled - f = %f", freq);
       e->delay_buffer.set_delay_samples(sample_rate/freq - e->Df0);
       //INFO("delay line len updated: %f", eng[ch].delay_line_len);
+      // index 0 = v
+      e->delay_line_v.set_delay_samples(sample_rate/freq - e->Df0_v);
+      e->delay_line_h.set_delay_samples(sample_rate/freq*detuning - e->Df0_h);
     } else {
       INFO("dispersion disabled - f = %f", freq);
       e->delay_buffer.set_delay_samples(sample_rate/freq);
     }
-    
+   
+    initial_and_sustained_t60s(freq, &(e->t60_initial), &(e->t60_sustain));
+    // index 0 = v
+    sustain_brightness_filter(e->t60_initial, brightness, freq,
+                              &(e->loop_filter_v));
+    // index 1 = h
+    sustain_brightness_filter(e->t60_sustain, brightness, freq * detuning,
+                              &(e->loop_filter_h));
+                              
+    e->strike_comb_delay.set_delay_samples(strike_position(freq) * sample_rate/freq);
   }
   
   void process(const ProcessArgs &args) override {
@@ -396,19 +426,14 @@ struct Interferometer : Module {
           set_frequency(freq, &eng[ch]);        
         }
 
-        // random
-        //buffer[buf_head] = 5.0f * (random::uniform()-0.5f);
-        // ramp
-        //buffer[buf_head] = 5.0f * (trig_state/(float)delay_line_len - 0.5f);
-        // decaying exponential of noise?
-        // TODO: decaying exponential of noise.
-        // piano
-        // TODO: since trig_state starts at 1, shouldn't this and the
-        //       the termination predicate be minus 1?
-        // TODO: Look at 
+        // Alternate approach:
         //       http://lib.tkk.fi/Diss/2007/isbn9789512290666/article3.pdf
         //       for a better excitation model that doesn't involve
         //       loading a waveform.
+        //       That paper involves a lot of extraction of parameters from
+        //       existing pianos notes.
+        // The subtraction of 1 is because we start with trig_state = 1.  
+        // That should be index zero in the soundboard waveform.
         co = 8.0f * soundboard[eng[ch].trig_state - 1];
         
         eng[ch].trig_state++;
@@ -418,10 +443,8 @@ struct Interferometer : Module {
 
       }
 
-      delay_fractional = 1;
-      if (delay_fractional == 0) {
-        // Dead code
-      } else if (delay_fractional == 1) {
+      // Old loop model
+      if (loop_model == 0) {
       
         float feedback_val = eng[ch].delay_buffer.get_next_out();
         co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
@@ -430,22 +453,66 @@ struct Interferometer : Module {
             co = eng[ch].dispersionFilter[j].process(co);
           }
         }
-        //eng[ch].dispersion_enabled = true;
+
+        // update the head before we leave.
+        eng[ch].delay_buffer.tick(co);
         
-      } else if (delay_fractional == 2) {
-        // Dead code
-      }
+        // apply that output DC block filter
+        co = eng[ch].dcFilter.process(co);
       
-      // apply that output DC block filter
-      co = eng[ch].dcFilter.process(co);
+      // New loop model       
+      } else if (loop_model == 1) {
+        // TODO: What is this?  ignoring changes in loop gain.
+        //if self.loop_gain < self.loop_gain_target:
+        //    self.loop_gain += 0.0001
+        //elif self.loop_gain > self.loop_gain_target:
+        //    self.loop_gain -= 0.0001
+        
+        // exciter is already in co.
+        
+        co -= eng[ch].strike_comb_delay.tick(co);
+        
+        // A hack to futher emulate a stronger attack.
+        // Note that this technically invalidates the sustain t60 value.
+        float long_sustain_excite_gain = 0.6;
+       
+        float into_loop_filter;
+        float back_into_delay_line; 
+        //float delay_line_out_v;
+        //float delay_line_out_h;
+        
+        // delay_line_out_v and delay_line_out_h needs to go in Engine
+        
+        // v  index 0
+        into_loop_filter = eng[ch].delay_line_v.tick(co + eng[ch].delay_line_out_v);
+        back_into_delay_line = eng[ch].loop_filter_v.process(into_loop_filter);
+        if (dispersion_enabled) {
+          //back_into_delay_line = self.dispersion_filters[i].tick(back_into_delay_line);
+          for (int j = 0; j < eng[ch].M; j++) {
+            back_into_delay_line  = eng[ch].dispersionFilter_v[j].process(back_into_delay_line);
+          }
+        }
+        // loop gain is 1.0
+        eng[ch].delay_line_out_v = 1.0 * back_into_delay_line;
+            
+        // h index 1
+        into_loop_filter = eng[ch].delay_line_h.tick(long_sustain_excite_gain * co + eng[ch].delay_line_out_h);
+        back_into_delay_line = eng[ch].loop_filter_h.process(into_loop_filter);
+        if (dispersion_enabled) {
+          //back_into_delay_line = self.dispersion_filters[i].tick(back_into_delay_line)
+          for (int j = 0; j < eng[ch].M; j++) {
+            back_into_delay_line  = eng[ch].dispersionFilter_v[j].process(back_into_delay_line);
+          }
+        }
+        eng[ch].delay_line_out_h = 1.0 * back_into_delay_line;
+            
+        // loop gain is 1.0 gain
+        co = 1.0f * eng[ch].delay_line_out_v + eng[ch].delay_line_out_h;
+      } 
       
       // sum this channel's output into the master output
       y += co;
       
-      // update the head before we leave.
-      //eng[ch].buf_head = (eng[ch].buf_head+1) % BUF_SIZE;
-      eng[ch].delay_buffer.tick(co);
-      //eng[ch].dispersion_enabled = false;
     }
     
     // clamp outputs then output.
@@ -676,9 +743,9 @@ struct InterferometerWidget : ModuleWidget {
 	    {"False", "True"},
 	    &module->dispersion_enabled));
     // Controls int Module::fractional delay
-    menu->addChild(createIndexPtrSubmenuItem("Fractional Delay",
-	    {"Integer", "Fractional", "Sync"},
-	    &module->delay_fractional));
+    menu->addChild(createIndexPtrSubmenuItem("Model",
+	    {"Old", "New"},
+	    &module->loop_model));
   }
 };
 
