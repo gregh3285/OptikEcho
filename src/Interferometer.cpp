@@ -36,6 +36,30 @@ typedef TAllpassFilter<float> AllpassFilter;
 
 #define ALLPASS_BUF_SIZE (100000)
 
+struct TTwoZero {
+  // From
+  // https://github.com/khiner/notebooks/blob/master/Filters.py
+  float in1, in2, b0, b1, b2;
+  TTwoZero()
+  {
+    set_coefficients();
+    in1 = 0.0; in2 = 0.0;
+  }
+    
+  float process(float in_sample)
+  {
+    float out_sample = b2 * in2 + b1 * in1 + b0 * in_sample;
+    in2 = in1; in1 = in_sample;   
+    return out_sample;
+  }
+  
+  void set_coefficients(float ib0=1.0, float ib1=0.0, float ib2=0.0)
+  {
+      b0 = ib0; b1 = ib1; b2 = ib2;
+  } 
+};
+typedef struct TTwoZero TwoZeroFilter;
+
 struct TAllpassDelay {
   // Translation to c++ of:
   // https://github.com/khiner/notebooks/blob/master/AllpassDelay.py
@@ -234,8 +258,8 @@ struct Interferometer : Module {
     AllpassDelay delay_line_h;
     float t60_initial; 
     float t60_sustain;
-    rack::dsp::BiquadFilter loop_filter_v;
-    rack::dsp::BiquadFilter loop_filter_h;
+    TwoZeroFilter loop_filter_v;
+    TwoZeroFilter loop_filter_h;
     AllpassDelay strike_comb_delay;
     float delay_line_out_v = 0;
     float delay_line_out_h = 0;
@@ -491,8 +515,8 @@ struct Interferometer : Module {
         
         feedback_val = eng[ch].delay_line_v.get_next_out();
         // Loop filter appears broken!
-        //co_v += eng[ch].loop_filter_v.process(feedback_val);
-        co_v += feedback_val;
+        co_v += eng[ch].loop_filter_v.process(feedback_val);
+        //co_v += feedback_val;
         dispersion_enabled = false;
         if (dispersion_enabled) {
           //back_into_delay_line = self.dispersion_filters[i].tick(back_into_delay_line);
@@ -539,17 +563,31 @@ struct Interferometer : Module {
   void sustain_brightness_filter(float sustain_seconds, 
                                  float brightness, 
                                  float frequency,
-                                 rack::dsp::BiquadFilter *loop_filter)
+                                 TwoZeroFilter *loop_filter)
   {
+    INFO("sustain_seconds %f", sustain_seconds);
+    INFO("brightness %f", brightness);
+    INFO("frequency %f", frequency);
     float g0 = exp(-6.91 / (sustain_seconds * frequency));
     float b0 = g0 * (1 + brightness) / 2.0;
     float b1 = g0 * (1 - brightness) / 4.0;
     //loop_filter = TwoZeroFilter()
-    //loop_filter.set_coefficients(b1, b0, b1);
-    loop_filter->b[0] = b1;
-    loop_filter->b[1] = b0;
-    loop_filter->b[2] = b1;
-  
+    loop_filter->set_coefficients(b1, b0, b1);
+    //loop_filter->a[0] = 0.0;
+    //loop_filter->a[1] = 0.0;
+    //loop_filter->a[2] = 0.0;
+    //loop_filter->b[0] = b1;
+    //loop_filter->b[1] = b0;
+    //loop_filter->b[2] = b1;
+    INFO("g0 %f", g0);
+    INFO("b0 %f", b0);
+    INFO("b1 %f", b1);
+    //INFO("a[0] %f", loop_filter->a[0]);
+    //INFO("a[1] %f", loop_filter->a[1]);
+    //INFO("a[2] %f", loop_filter->a[2]);
+    //INFO("b[0] %f", loop_filter->b[0]);
+    //INFO("b[1] %f", loop_filter->b[1]);
+    //INFO("b[2] %f", loop_filter->b[2]);
     //return loop_filter
   }
   
