@@ -221,7 +221,7 @@ struct Interferometer : Module {
   const float HIGHEST_FREQUENCY = 4186.0f;
   
   float brightness = 0.6;
-  float detuning = 0.94;
+  float detuning = 0.9993;
   float coupling_amount = 0.01;
    
   // soundboard storage
@@ -280,10 +280,8 @@ struct Interferometer : Module {
     // dispersion filtering for new loop with string coupling.
     float Df0_v = 0.f;        // dispersion filter delay and fundamental.
     float a1_v = 0.0f;
-    float curr_f0_v = NOT_A_NOTE;  // current note frequency.
     float Df0_h = 0.f;        // dispersion filter delay and fundamental.
     float a1_h = 0.0f;
-    float curr_f0_h = NOT_A_NOTE;  // current note frequency.
     AllpassFilter dispersionFilter_v[M];
     AllpassFilter dispersionFilter_h[M];
     
@@ -345,7 +343,9 @@ struct Interferometer : Module {
     // if no value change is made, do nothing
     float B = b_from_freq(freq);
     //INFO("B = %f",B);
-    update_dispersion_values(freq, e->M, B, sample_rate, &(e->Df0), &(e->a1), &(e->curr_f0));
+    update_dispersion_values(freq, e->M, B, sample_rate, &(e->Df0), &(e->a1));
+    update_dispersion_values(freq, e->M, B, sample_rate, &(e->Df0_v), &(e->a1_v));
+    update_dispersion_values(freq*detuning, e->M, B, sample_rate, &(e->Df0_h), &(e->a1_h));
     
     // update all M allpass filters in the cascade.
     for (int j = 0; j < e->M; j++) {
@@ -382,6 +382,10 @@ struct Interferometer : Module {
                               &(e->loop_filter_h));
                               
     e->strike_comb_delay.set_delay_samples(strike_position(freq) * sample_rate/freq);
+    
+    // log that we've updated frequency, so we don't keep doing it again
+    // unless it changes.
+    e->curr_f0 = freq;
   }
   
   void process(const ProcessArgs &args) override {
@@ -495,7 +499,7 @@ struct Interferometer : Module {
         // exciter is already in co.
         
         // TODO: leave out the strike comb filter for now.
-        //co -= eng[ch].strike_comb_delay.tick(co);
+        co -= eng[ch].strike_comb_delay.tick(co);
         
         // A hack to futher emulate a stronger attack.
         // Note that this technically invalidates the sustain t60 value.
@@ -507,29 +511,35 @@ struct Interferometer : Module {
         float co_v;
         float co_h;
         
-        // delay_line_out_v and delay_line_out_h needs to go in Engine
-        
-        // v  index 0
         co_v = co;
         co_h = co;
-        
+
+        // v  index 0 
         feedback_val = eng[ch].delay_line_v.get_next_out();
         // Loop filter appears broken!
         co_v += eng[ch].loop_filter_v.process(feedback_val);
-        //co_v += feedback_val;
-        dispersion_enabled = false;
         if (dispersion_enabled) {
           //back_into_delay_line = self.dispersion_filters[i].tick(back_into_delay_line);
           for (int j = 0; j < eng[ch].M; j++) {
             co_v = eng[ch].dispersionFilter_v[j].process(co_v);
           }
         }
-        eng[ch].delay_line_v.tick(co_v);
-        // loop gain is 1.0
-        //eng[ch].delay_line_out_v = 1.0 * back_into_delay_line;
+        eng[ch].delay_line_v.tick((1.0 - ch_decay) * co_v);
+
+
+        // h index 1
+        feedback_val = eng[ch].delay_line_h.get_next_out();
+        // Loop filter appears broken!
+        co_h += eng[ch].loop_filter_h.process(feedback_val);
+        if (dispersion_enabled) {
+          //back_into_delay_line = self.dispersion_filters[i].tick(back_into_delay_line);
+          for (int j = 0; j < eng[ch].M; j++) {
+            co_h = eng[ch].dispersionFilter_h[j].process(co_h);
+          }
+        }
+        eng[ch].delay_line_h.tick((1.0 - ch_decay) * co_h);
 
 #if 0
-        // h index 1
         into_loop_filter = eng[ch].delay_line_h.tick(long_sustain_excite_gain * co + eng[ch].delay_line_out_h);
         back_into_delay_line = eng[ch].loop_filter_h.process(into_loop_filter);
         if (dispersion_enabled) {
@@ -541,11 +551,11 @@ struct Interferometer : Module {
         eng[ch].delay_line_out_h = 1.0 * back_into_delay_line;
 #endif             
         // loop gain is 1.0 gain
-        co = 1.0f * co_v + co_h;
+        co = co_v + co_h;
       } 
       
       // sum this channel's output into the master output
-      y += co;
+      y += co ;
       
     }
     
@@ -662,7 +672,7 @@ struct Interferometer : Module {
   //             chapter_9_virtual_musical_instruments_part_2.ipynb#
   //             scrollTo=wMHzkzt964i1&line=2&uniqifier=1
   // and, http://lib.tkk.fi/Diss/2007/isbn9789512290666/article2.pdf
-  void update_dispersion_values(float f0, int M, float B, float fs, float *Df0, float *a1, float *curr_f0)
+  void update_dispersion_values(float f0, int M, float B, float fs, float *Df0, float *a1)
   {
     // the article above explains the design methodology for the 
     // all-pass filters, what B is, selection of m, etc.
@@ -695,10 +705,6 @@ struct Interferometer : Module {
     
     //INFO("update dispersion f %f, Df0 %f, a1 %f", f0, Df0, a1);
     
-    // TODO: this is broken as it doesn't handle _v and _h!
-    //e->Df0 = Df0; // store the delay in the engine data.
-    //e->a1 = a1;   // store the filter coefficient in the engine data.
-    *curr_f0 = f0;  // we're now updated to this.  don't redo if not needed.
   }
   
   // Anders Askenfelt and Erik Janson "From touch to string vibrations"
