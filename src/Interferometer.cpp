@@ -363,14 +363,15 @@ struct Interferometer : Module {
       //INFO("delay line len updated: %f", eng[ch].delay_line_len);
       // index 0 = v
       INFO("delay_line_v set samples = %f",sample_rate/freq - e->Df0_v);
-      e->delay_line_v.set_delay_samples(sample_rate/freq - e->Df0_v);
-      e->delay_line_h.set_delay_samples(sample_rate/freq*detuning - e->Df0_h);
+      // The minus one is tuning. Probably related to the loop filter.
+      e->delay_line_v.set_delay_samples(sample_rate/freq - e->Df0_v - 1);
+      e->delay_line_h.set_delay_samples(sample_rate/freq*detuning - e->Df0_h - 1);
     } else {
       INFO("dispersion disabled - f = %f", freq);
       e->delay_buffer.set_delay_samples(sample_rate/freq);
       // index 0 = v
-      e->delay_line_v.set_delay_samples(sample_rate/freq);
-      e->delay_line_h.set_delay_samples(sample_rate/freq*detuning);
+      e->delay_line_v.set_delay_samples(sample_rate/freq-2);
+      e->delay_line_h.set_delay_samples(sample_rate/freq*detuning-2);
     }
    
     initial_and_sustained_t60s(freq, &(e->t60_initial), &(e->t60_sustain));
