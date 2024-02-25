@@ -140,7 +140,7 @@ struct TAllpassDelay {
     float fractional_out_pointer;
     float alpha;
     
-    INFO("new_delay_samples: %f", new_delay_samples);
+    //INFO("new_delay_samples: %f", new_delay_samples);
     
     if ((new_delay_samples < 0.5) || (new_delay_samples > (ALLPASS_BUF_SIZE-2))) {
       FATAL("delay samples %f", delay_samples);
@@ -169,9 +169,9 @@ struct TAllpassDelay {
     }
 
     allpass_coefficient = (1.0 - alpha) / (1.0 + alpha);
-    INFO("allpass_coefficient: %f", allpass_coefficient);
-    INFO("in_pointer: %d", in_pointer);
-    INFO("out_pointer: %d", out_pointer);
+    //INFO("allpass_coefficient: %f", allpass_coefficient);
+    //INFO("in_pointer: %d", in_pointer);
+    //INFO("out_pointer: %d", out_pointer);
   }
   
   void clear()
@@ -305,11 +305,11 @@ struct Interferometer : Module {
     // See: https://community.vcvrack.com/t/dc-blocker-in-rack-api/8419/6
     
     master_dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 20.6f/44000.0, 0.5, 0.0);
-    INFO("dcFilter a[0]; %f",master_dcFilter.a[0]);
-    INFO("dcFilter a[1]; %f",master_dcFilter.a[1]);
-    INFO("dcFilter b[0]; %f",master_dcFilter.b[0]);
-    INFO("dcFilter b[1]; %f",master_dcFilter.b[1]);
-    INFO("dcFilter b[2]; %f",master_dcFilter.b[2]);
+    //INFO("dcFilter a[0]; %f",master_dcFilter.a[0]);
+    //INFO("dcFilter a[1]; %f",master_dcFilter.a[1]);
+    //INFO("dcFilter b[0]; %f",master_dcFilter.b[0]);
+    //INFO("dcFilter b[1]; %f",master_dcFilter.b[1]);
+    //INFO("dcFilter b[2]; %f",master_dcFilter.b[2]);
     
     // get the sample rate.
     sample_rate = APP->engine->getSampleRate();
@@ -323,7 +323,7 @@ struct Interferometer : Module {
     }
     // load the soundboard exciter wave file.
     soundboard_size = load(soundboard);
-    INFO("soundboard_size %d", soundboard_size);
+    //INFO("soundboard_size %d", soundboard_size);
     if (soundboard_size < 0) {
       FATAL("soundboard size < 0");
     }
@@ -337,7 +337,7 @@ struct Interferometer : Module {
 
   void set_frequency(float freq, struct Engine *e)
   {
-    INFO("freq: %f", freq);
+    //INFO("freq: %f", freq);
     
     // this function is only called if an update is made to the frequency.
     // if no value change is made, do nothing
@@ -358,16 +358,16 @@ struct Interferometer : Module {
     // set the delay line length accordingly   
     // retune due to dispersion filter delay at the primary frequency.
     if (dispersion_enabled) {
-      INFO("dispersion enabled - f = %f", freq);
+      //INFO("dispersion enabled - f = %f", freq);
       e->delay_buffer.set_delay_samples(sample_rate/freq - e->Df0);
       //INFO("delay line len updated: %f", eng[ch].delay_line_len);
       // index 0 = v
-      INFO("delay_line_v set samples = %f",sample_rate/freq - e->Df0_v);
+      //INFO("delay_line_v set samples = %f",sample_rate/freq - e->Df0_v);
       // The minus one is tuning. Probably related to the loop filter.
       e->delay_line_v.set_delay_samples(sample_rate/freq - e->Df0_v - 1);
       e->delay_line_h.set_delay_samples(sample_rate/freq*detuning - e->Df0_h - 1);
     } else {
-      INFO("dispersion disabled - f = %f", freq);
+      //INFO("dispersion disabled - f = %f", freq);
       e->delay_buffer.set_delay_samples(sample_rate/freq);
       // index 0 = v
       e->delay_line_v.set_delay_samples(sample_rate/freq-2);
@@ -576,30 +576,16 @@ struct Interferometer : Module {
                                  float frequency,
                                  TwoZeroFilter *loop_filter)
   {
-    INFO("sustain_seconds %f", sustain_seconds);
-    INFO("brightness %f", brightness);
-    INFO("frequency %f", frequency);
+    //INFO("sustain_seconds %f", sustain_seconds);
+    //INFO("brightness %f", brightness);
+    //INFO("frequency %f", frequency);
     float g0 = exp(-6.91 / (sustain_seconds * frequency));
     float b0 = g0 * (1 + brightness) / 2.0;
     float b1 = g0 * (1 - brightness) / 4.0;
-    //loop_filter = TwoZeroFilter()
     loop_filter->set_coefficients(b1, b0, b1);
-    //loop_filter->a[0] = 0.0;
-    //loop_filter->a[1] = 0.0;
-    //loop_filter->a[2] = 0.0;
-    //loop_filter->b[0] = b1;
-    //loop_filter->b[1] = b0;
-    //loop_filter->b[2] = b1;
-    INFO("g0 %f", g0);
-    INFO("b0 %f", b0);
-    INFO("b1 %f", b1);
-    //INFO("a[0] %f", loop_filter->a[0]);
-    //INFO("a[1] %f", loop_filter->a[1]);
-    //INFO("a[2] %f", loop_filter->a[2]);
-    //INFO("b[0] %f", loop_filter->b[0]);
-    //INFO("b[1] %f", loop_filter->b[1]);
-    //INFO("b[2] %f", loop_filter->b[2]);
-    //return loop_filter
+    //INFO("g0 %f", g0);
+    //INFO("b0 %f", b0);
+    //INFO("b1 %f", b1);
   }
   
   // Initial t60s range from 15 seconds (A0) to 0.3 seconds (C8)
@@ -845,9 +831,9 @@ int load(float *extbuff){
     constexpr char data_id[4] = {'d','a','t','a'};
 
     ifstream ifs{asset::plugin(pluginInstance, "res/soundboard.wav").data(), ios_base::binary};
-    INFO("soundboard location %s", asset::plugin(pluginInstance, "res/soundboard.wav").data());
+    //INFO("soundboard location %s", asset::plugin(pluginInstance, "res/soundboard.wav").data());
     if (!ifs){
-        INFO("cannot open soundboard file.");
+        FATAL("cannot open soundboard file.");
         return -1;
     }
 
@@ -855,7 +841,7 @@ int load(float *extbuff){
     RIFFHeader h;
     ifs.read((char*)(&h), sizeof(h));
     if (!ifs || memcmp(h.chunk_id, riff_id, 4) || memcmp(h.format, format, 4)){
-        INFO("bad formatting");
+        FATAL("bad formatting");
         return -1;
     }
 
@@ -878,7 +864,7 @@ int load(float *extbuff){
             ifs.read((char*)dat_chunk.data, ch.chunk_size);
             data_read = true;
 
-            INFO("reading datachunk with length %d", ch.chunk_size); 
+            //INFO("reading datachunk with length %d", ch.chunk_size); 
             long unsigned int i;
             
             for (i = 0; i < ch.chunk_size/sizeof(int16_t); i++) {
@@ -897,9 +883,10 @@ int load(float *extbuff){
         }
     }
     if (!data_read || !fmt_read){
-        INFO("problem reading data.");
+        FATAL("problem reading data.");
         return -1;
     }
+    INFO("Loaded soundboard impulse response file.");
     // return the number of samples in the one channel.
     return ebi;
 }
