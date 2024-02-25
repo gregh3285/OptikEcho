@@ -753,6 +753,23 @@ struct Interferometer : Module {
       eng[ch].delay_buffer.clear();
     }
   }
+  json_t* dataToJson() override {
+    json_t* rootJ = json_object();
+    json_object_set_new(rootJ, "loop_model", json_integer(loop_model));
+    json_object_set_new(rootJ, "dispersion_enabled", json_integer(dispersion_enabled));
+    return rootJ;
+  } 
+
+  void dataFromJson(json_t* rootJ) override {
+  
+    json_t* modeJ = json_object_get(rootJ, "loop_model");
+    if (modeJ)
+      loop_model = json_integer_value(modeJ);
+      
+    modeJ = json_object_get(rootJ, "dispersion_enabled");
+    if (modeJ)
+      dispersion_enabled = json_integer_value(modeJ);
+  }
   
 };
 
