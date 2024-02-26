@@ -220,7 +220,7 @@ struct Interferometer : Module {
   const float LOWEST_FREQUENCY = 27.5f;
   const float HIGHEST_FREQUENCY = 4186.0f;
   
-  float brightness = 0.6;
+  float brightness = 0.8;
   float detuning = 0.9993;
   float coupling_amount = 0.01;
    
@@ -236,6 +236,7 @@ struct Interferometer : Module {
   enum InputId {
 		VOCT_INPUT,
 		TRIG_INPUT,
+		VELOCITY_INPUT,
 		INPUTS_LEN
   };
   enum OutputId {
@@ -263,7 +264,10 @@ struct Interferometer : Module {
     AllpassDelay strike_comb_delay;
     float delay_line_out_v = 0;
     float delay_line_out_h = 0;
-        
+    
+    // gain  10v velocity -> 100%.  0v = 0%.
+    float engine_gain = 1.0f;
+    
     // trigger state
     int trig_state = 0;
     // create a biquad filter to control the feedback through the delay filter.
@@ -299,6 +303,7 @@ struct Interferometer : Module {
     configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.f, "");
     configInput(VOCT_INPUT, "");
     configInput(TRIG_INPUT, "");
+    configInput(VELOCITY_INPUT, "");
     configOutput(OUT_OUTPUT, "");
     
     // DC blocking set to 20.6 Hz
@@ -424,6 +429,7 @@ struct Interferometer : Module {
       // TODO: No longer useful?
       eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
     
+      
       // a trigger a rising edge.        
       // allow retriggering.  Arbitrarily the threshold is 0.7
       trigger = inputs[TRIG_INPUT].getVoltage(ch);
@@ -446,7 +452,6 @@ struct Interferometer : Module {
 
       // if we are currently triggered and outputting an impulse,
       if (eng[ch].trig_state != TRIG_OFF) {
-      
         // sample the frequency at the point where we are triggering
         // sample each time to avoid the race condition between 
         // trigger signal and stabilization of frequency input.
@@ -455,9 +460,29 @@ struct Interferometer : Module {
         // The default frequency (0.f volts) is C4 = 261.6256 Hz.
         float freq = dsp::FREQ_C4 * std::pow(2.f, pitch);
         
-        // if the note value has changed, update the dispersion filter
+        // if the note value has changed, update the frequency stuff
+        // and set gain from velocity.
         if (abs(freq - eng[ch].curr_f0) > 0.1) {
-          set_frequency(freq, &eng[ch]);        
+          set_frequency(freq, &eng[ch]);      
+          
+          // note gain based upon velocity.
+          // https://www.hedsound.com/p/midi-velocity-db-dynamics-db-and.html
+          // 10 V = 0 dbV
+          // Volts = 10^^(dBV/20) 
+          // MMA GM MIDI specification:
+          // Volume (CC#7) and Expression (CC #11) should be implemented as follows:
+          // For situations in which only CC# 7 is used (CC#11 is assumed "127"):
+          // L(dB) = 40 log (V/127) where V= CC#7 value
+          // For example: CC#7 amplitude
+          // 127    0dB    10 V in CV
+          // 96 - 4.8dB
+          // 64 -11.9dB
+          // 32 -23.9dB
+          // 16 -36.0dB
+          // 0  -oo         0 V in CV
+          // -4.12*(10.0 - CV) db
+          float cvvel = math::clamp(inputs[VELOCITY_INPUT].getVoltage(ch) / 10.0f, 0.0f, 1.0f); 
+          eng[ch].engine_gain = pow(10, (-4.12 * (10.0 - cvvel) / 20.0));
         }
 
         // Alternate approach:
@@ -492,7 +517,7 @@ struct Interferometer : Module {
         eng[ch].delay_buffer.tick(co);
         
         // apply that output DC block filter
-        co = eng[ch].dcFilter.process(co);
+        co = eng[ch].dcFilter.process(co) * eng[ch].engine_gain;
       
       // New loop model       
       } else if (loop_model == 1) {
@@ -552,7 +577,7 @@ struct Interferometer : Module {
         eng[ch].delay_line_out_h = 1.0 * back_into_delay_line;
 #endif             
         // loop gain is 1.0 gain
-        co = co_v + co_h;
+        co = co_v + co_h * eng[ch].engine_gain;
       } 
       
       // sum this channel's output into the master output
@@ -784,16 +809,29 @@ struct InterferometerWidget : ModuleWidget {
     addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
     addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(13.05, 78.178)), module, Interferometer::DECAY_PARAM));
-    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(33.999, 80.013)), module, Interferometer::DELAY_FEEDBACK_FREQ_PARAM));
+    //addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(13.05, 78.178)), module, Interferometer::DECAY_PARAM));
+    //addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(33.999, 80.013)), module, Interferometer::DELAY_FEEDBACK_FREQ_PARAM));
 
-    addInput(createInputCentered<PJ301MPort>(mm2px(Vec(12.718, 15.651)), module, Interferometer::VOCT_INPUT));
-    addInput(createInputCentered<PJ301MPort>(mm2px(Vec(34.012, 17.686)), module, Interferometer::TRIG_INPUT));
+    //addInput(createInputCentered<PJ301MPort>(mm2px(Vec(12.718, 15.651)), module, Interferometer::VOCT_INPUT));
+    //addInput(createInputCentered<PJ301MPort>(mm2px(Vec(34.012, 17.686)), module, Interferometer::TRIG_INPUT));
 
-    addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(12.848, 43.189)), module, Interferometer::OUT_OUTPUT));
+    //addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(12.848, 43.189)), module, Interferometer::OUT_OUTPUT));
 
-    addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(34.452, 52.137)), module, Interferometer::ACTIVE_LIGHT));
-  }
+    //addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(34.452, 52.137)), module, Interferometer::ACTIVE_LIGHT));
+
+    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(14.753, 71.58)), module, Interferometer::DECAY_PARAM));
+    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.047, 71.58)), module, Interferometer::DELAY_FEEDBACK_FREQ_PARAM));
+
+    addInput(createInputCentered<PJ301MPort>(mm2px(Vec(14.753, 17.686)), module, Interferometer::VOCT_INPUT));
+    addInput(createInputCentered<PJ301MPort>(mm2px(Vec(36.047, 17.686)), module, Interferometer::TRIG_INPUT));
+    addInput(createInputCentered<PJ301MPort>(mm2px(Vec(36.047, 43.189)), module, Interferometer::VELOCITY_INPUT));
+
+    addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(14.753, 43.189)), module, Interferometer::OUT_OUTPUT));
+
+    addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(44.484, 12.506)), module, Interferometer::ACTIVE_LIGHT));
+
+
+}
   
   void appendContextMenu(Menu* menu) override {
     Interferometer* module = getModule<Interferometer>();
