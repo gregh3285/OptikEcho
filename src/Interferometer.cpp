@@ -220,7 +220,7 @@ struct Interferometer : Module {
   const float LOWEST_FREQUENCY = 27.5f;
   const float HIGHEST_FREQUENCY = 4186.0f;
   
-  float brightness = 0.8;
+  float brightness = 0.95;
   float detuning = 0.9993;
   float coupling_amount = 0.01;
    
@@ -229,6 +229,7 @@ struct Interferometer : Module {
   float soundboard[BUF_SIZE];
 
   enum ParamId {
+                BRIGHTNESS_PARAM,
 		DECAY_PARAM,
 		DELAY_FEEDBACK_FREQ_PARAM,
 		PARAMS_LEN
@@ -299,6 +300,7 @@ struct Interferometer : Module {
 
   Interferometer() {
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
+    configParam(BRIGHTNESS_PARAM, 0.f, 1.f, 0.f, "");
     configParam(DECAY_PARAM, 0.f, 0.125f, 0.f, "");
     configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.f, "");
     configInput(VOCT_INPUT, "");
@@ -463,6 +465,8 @@ struct Interferometer : Module {
         // if the note value has changed, update the frequency stuff
         // and set gain from velocity.
         if (abs(freq - eng[ch].curr_f0) > 0.1) {
+        
+          brightness = params[BRIGHTNESS_PARAM].getValue();
           set_frequency(freq, &eng[ch]);      
           
           // note gain based upon velocity.
@@ -481,8 +485,9 @@ struct Interferometer : Module {
           // 16 -36.0dB
           // 0  -oo         0 V in CV
           // -4.12*(10.0 - CV) db
+          #define FUDGE_DB (12)
           float cvvel = math::clamp(inputs[VELOCITY_INPUT].getVoltage(ch), 0.0f, 10.0f); 
-          float cvdb = -4.12 * (10.0 - cvvel);
+          float cvdb = -4.12 * (10.0 - cvvel) + FUDGE_DB;
           eng[ch].engine_gain = pow(10, (cvdb / 20.0));
           INFO("cvvel %f, cvdb %f, engine_gain %f", cvvel, cvdb, eng[ch].engine_gain);
         }
@@ -526,7 +531,7 @@ struct Interferometer : Module {
               
         // exciter is already in co.
         
-        // TODO: leave out the strike comb filter for now.
+        // TODO: parameter for tuning this?!
         co -= eng[ch].strike_comb_delay.tick(co);
         
         // A hack to futher emulate a stronger attack.
@@ -800,18 +805,17 @@ struct InterferometerWidget : ModuleWidget {
     addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
     addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(14.753, 71.58)), module, Interferometer::DECAY_PARAM));
-    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.047, 71.58)), module, Interferometer::DELAY_FEEDBACK_FREQ_PARAM));
+    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(25.4, 53.932)), module, Interferometer::BRIGHTNESS_PARAM));
+    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(14.753, 73.771)), module, Interferometer::DECAY_PARAM));
+    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.047, 73.771)), module, Interferometer::DELAY_FEEDBACK_FREQ_PARAM));
 
     addInput(createInputCentered<PJ301MPort>(mm2px(Vec(14.753, 17.686)), module, Interferometer::VOCT_INPUT));
     addInput(createInputCentered<PJ301MPort>(mm2px(Vec(36.047, 17.686)), module, Interferometer::TRIG_INPUT));
-    addInput(createInputCentered<PJ301MPort>(mm2px(Vec(36.047, 43.189)), module, Interferometer::VELOCITY_INPUT));
+    addInput(createInputCentered<PJ301MPort>(mm2px(Vec(36.047, 38.474)), module, Interferometer::VELOCITY_INPUT));
 
-    addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(14.753, 43.189)), module, Interferometer::OUT_OUTPUT));
+    addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(14.753, 38.474)), module, Interferometer::OUT_OUTPUT));
 
     addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(44.484, 12.506)), module, Interferometer::ACTIVE_LIGHT));
-
-
 }
   
   void appendContextMenu(Menu* menu) override {
