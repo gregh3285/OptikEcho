@@ -324,7 +324,7 @@ struct Interferometer : Module {
     for (int ch = 0; ch < POLY_NUM; ch++) {
       eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
       // highpass stuff above 4 or 5 Hz
-      eng[ch].dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 20.6f/44000.0, 0.5, 0.0); 
+      eng[ch].dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 20.6f/sample_rate, 0.5, 0.0); 
     }
     // load the soundboard exciter wave file.
     soundboard_size = load(soundboard);
@@ -481,8 +481,10 @@ struct Interferometer : Module {
           // 16 -36.0dB
           // 0  -oo         0 V in CV
           // -4.12*(10.0 - CV) db
-          float cvvel = math::clamp(inputs[VELOCITY_INPUT].getVoltage(ch) / 10.0f, 0.0f, 1.0f); 
-          eng[ch].engine_gain = pow(10, (-4.12 * (10.0 - cvvel) / 20.0));
+          float cvvel = math::clamp(inputs[VELOCITY_INPUT].getVoltage(ch), 0.0f, 10.0f); 
+          float cvdb = -4.12 * (10.0 - cvvel);
+          eng[ch].engine_gain = pow(10, (cvdb / 20.0));
+          INFO("cvvel %f, cvdb %f, engine_gain %f", cvvel, cvdb, eng[ch].engine_gain);
         }
 
         // Alternate approach:
@@ -517,8 +519,8 @@ struct Interferometer : Module {
         eng[ch].delay_buffer.tick(co);
         
         // apply that output DC block filter
-        co = eng[ch].dcFilter.process(co) * eng[ch].engine_gain;
-      
+        co = eng[ch].dcFilter.process(co) * eng[ch].engine_gain; 
+
       // New loop model       
       } else if (loop_model == 1) {
               
@@ -565,19 +567,8 @@ struct Interferometer : Module {
         }
         eng[ch].delay_line_h.tick((1.0 - ch_decay) * co_h);
 
-#if 0
-        into_loop_filter = eng[ch].delay_line_h.tick(long_sustain_excite_gain * co + eng[ch].delay_line_out_h);
-        back_into_delay_line = eng[ch].loop_filter_h.process(into_loop_filter);
-        if (dispersion_enabled) {
-          //back_into_delay_line = self.dispersion_filters[i].tick(back_into_delay_line)
-          for (int j = 0; j < eng[ch].M; j++) {
-            back_into_delay_line  = eng[ch].dispersionFilter_v[j].process(back_into_delay_line);
-          }
-        }
-        eng[ch].delay_line_out_h = 1.0 * back_into_delay_line;
-#endif             
         // loop gain is 1.0 gain
-        co = co_v + co_h * eng[ch].engine_gain;
+        co = (co_v + co_h) * eng[ch].engine_gain;
       } 
       
       // sum this channel's output into the master output
@@ -808,16 +799,6 @@ struct InterferometerWidget : ModuleWidget {
     addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
     addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
     addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-
-    //addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(13.05, 78.178)), module, Interferometer::DECAY_PARAM));
-    //addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(33.999, 80.013)), module, Interferometer::DELAY_FEEDBACK_FREQ_PARAM));
-
-    //addInput(createInputCentered<PJ301MPort>(mm2px(Vec(12.718, 15.651)), module, Interferometer::VOCT_INPUT));
-    //addInput(createInputCentered<PJ301MPort>(mm2px(Vec(34.012, 17.686)), module, Interferometer::TRIG_INPUT));
-
-    //addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(12.848, 43.189)), module, Interferometer::OUT_OUTPUT));
-
-    //addChild(createLightCentered<MediumLight<RedLight>>(mm2px(Vec(34.452, 52.137)), module, Interferometer::ACTIVE_LIGHT));
 
     addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(14.753, 71.58)), module, Interferometer::DECAY_PARAM));
     addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.047, 71.58)), module, Interferometer::DELAY_FEEDBACK_FREQ_PARAM));
