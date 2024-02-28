@@ -221,8 +221,12 @@ struct Interferometer : Module {
   const float LOWEST_FREQUENCY = 27.5f;
   const float HIGHEST_FREQUENCY = 4186.0f;
   
+  // A hack to futher emulate a stronger attack.
+  // Note that this technically invalidates the sustain t60 value.
+  const float long_sustain_excite_gain = 0.75;
+  
   float brightness = 0.95;
-  float detuning = 0.9993;
+  float detuning = 0.9992;
   float coupling_amount = 0.01;
    
   // soundboard storage
@@ -281,7 +285,7 @@ struct Interferometer : Module {
     float Df0 = 0.f;        // dispersion filter delay and fundamental.
     float a1 = 0.0f;
     float curr_f0 = NOT_A_NOTE;  // current note frequency.
-    static const int M = 8;
+    static const int M = 16;
     AllpassFilter dispersionFilter[M];
     // dispersion filtering for new loop with string coupling.
     float Df0_v = 0.f;        // dispersion filter delay and fundamental.
@@ -440,6 +444,11 @@ struct Interferometer : Module {
       if ((eng[ch].last_trig < 0.7) && (trigger > 0.7)) {
         // set the trigger buffer to 1
         eng[ch].trig_state = 1; 
+        
+        // clear the allpass delay buffers
+        eng[ch].delay_line_v.clear();
+        eng[ch].delay_line_h.clear();
+        eng[ch].strike_comb_delay.clear();
       }
       
       // handle not goes away (real note decay).
@@ -536,10 +545,6 @@ struct Interferometer : Module {
         
         // TODO: parameter for tuning this?!
         co -= eng[ch].strike_comb_delay.tick(co);
-        
-        // A hack to futher emulate a stronger attack.
-        // Note that this technically invalidates the sustain t60 value.
-        float long_sustain_excite_gain = 0.6;
        
         //float into_loop_filter;
         //float back_into_delay_line; 
@@ -548,7 +553,7 @@ struct Interferometer : Module {
         float co_h;
         
         co_v = co;
-        co_h = co;
+        co_h = co * long_sustain_excite_gain;
 
         // v  index 0 
         // TODO: The order of operation is different from the notebook.  Is that relevant?
@@ -574,7 +579,7 @@ struct Interferometer : Module {
             co_h = eng[ch].dispersionFilter_h[j].process(co_h);
           }
         }
-        eng[ch].delay_line_h.tick((1.0 - ch_decay) * co_h);
+        eng[ch].delay_line_h.tick((1.0 - ch_decay) * co_h );
 
         // loop gain is 1.0 gain
         co = (co_v + co_h) * eng[ch].engine_gain;
