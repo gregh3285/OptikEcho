@@ -56,7 +56,7 @@ struct TTwoZero {
   void set_coefficients(float ib0=1.0, float ib1=0.0, float ib2=0.0)
   {
       b0 = ib0; b1 = ib1; b2 = ib2;
-      INFO("b0 %f, b1 %f, b2 %f", b0, b1, b2);
+      //INFO("b0 %f, b1 %f, b2 %f", b0, b1, b2);
   } 
 };
 typedef struct TTwoZero TwoZeroFilter;
@@ -141,7 +141,7 @@ struct TAllpassDelay {
     float fractional_out_pointer;
     float alpha;
     
-    INFO("new_delay_samples: %f", new_delay_samples);
+    //INFO("new_delay_samples: %f", new_delay_samples);
     
     if ((new_delay_samples < 0.5) || (new_delay_samples > (ALLPASS_BUF_SIZE-2))) {
       FATAL("delay samples %f", delay_samples);
@@ -478,7 +478,7 @@ struct Interferometer : Module {
         if (abs(freq - eng[ch].curr_f0) > 0.1) {
         
           brightness = params[BRIGHTNESS_PARAM].getValue();
-          INFO("brightness: %f", brightness);
+          //INFO("brightness: %f", brightness);
           set_frequency(freq, &eng[ch]);      
           
           // note gain based upon velocity.
@@ -498,10 +498,15 @@ struct Interferometer : Module {
           // 0  -oo         0 V in CV
           // -4.12*(10.0 - CV) db
           #define FUDGE_DB (12)
-          float cvvel = math::clamp(inputs[VELOCITY_INPUT].getVoltage(ch), 0.0f, 10.0f); 
+          float cvvel;
+          if (inputs[VELOCITY_INPUT].isConnected()) {
+            cvvel = math::clamp(inputs[VELOCITY_INPUT].getVoltage(ch), 0.0f, 10.0f); 
+          } else {
+            cvvel = 10.0f;
+          }
           float cvdb = -4.12 * (10.0 - cvvel) + FUDGE_DB;
           eng[ch].engine_gain = pow(10, (cvdb / 20.0));
-          INFO("cvvel %f, cvdb %f, engine_gain %f", cvvel, cvdb, eng[ch].engine_gain);
+          //INFO("cvvel %f, cvdb %f, engine_gain %f", cvvel, cvdb, eng[ch].engine_gain);
         }
 
         // Alternate approach:
@@ -608,15 +613,15 @@ struct Interferometer : Module {
   {
     // TODO: This doesn't seem to do much?!
     //INFO("sustain_seconds %f", sustain_seconds);
-    INFO("brightness %f", brightness);
+    //INFO("brightness %f", brightness);
     //INFO("frequency %f", frequency);
     float g0 = exp(-6.91 / (sustain_seconds * frequency));
     float b0 = g0 * (1 + brightness) / 2.0;
     float b1 = g0 * (1 - brightness) / 4.0;
     loop_filter->set_coefficients(b1, b0, b1);
-    INFO("g0 %f", g0);
-    INFO("b0 %f", b0);
-    INFO("b1 %f", b1);
+    //INFO("g0 %f", g0);
+    //INFO("b0 %f", b0);
+    //INFO("b1 %f", b1);
   }
   
   // Initial t60s range from 15 seconds (A0) to 0.3 seconds (C8)
