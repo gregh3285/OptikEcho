@@ -18,7 +18,8 @@
       "name": "Interferometer",
       "description": "foo",
       "tags": [
-        "oscillator"
+        "Physical modeling",
+        "Polyphonic"
       ]
     }
   ]
