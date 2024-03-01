@@ -94,7 +94,7 @@ struct TAllpassDelay {
     last_out = 0.0;
     next_out = 0.0;
     in_pointer = 0;
-    set_delay_samples(200.0);  // bogus initial value.
+    (void)set_delay_samples(200.0);  // bogus initial value.
     allpass_input = 0.0;
     do_next_out = true;
   }
@@ -136,7 +136,8 @@ struct TAllpassDelay {
     //  self.inputs = np.concatenate([self.inputs, np.zeros(max_delay_samples + 1)])
   //}
   
-  void set_delay_samples(float new_delay_samples)
+  bool set_delay_samples(float new_delay_samples)
+  // return true if successful, false if not
   {
     float fractional_out_pointer;
     float alpha;
@@ -144,7 +145,9 @@ struct TAllpassDelay {
     //INFO("new_delay_samples: %f", new_delay_samples);
     
     if ((new_delay_samples < 0.5) || (new_delay_samples > (ALLPASS_BUF_SIZE-2))) {
-      FATAL("delay samples %f", delay_samples);
+      FATAL("new delay samples %f", new_delay_samples);
+      // TODO: if this happens, the what?  Fault the channel?
+      return false;
     }
 
     delay_samples = new_delay_samples;
@@ -173,6 +176,7 @@ struct TAllpassDelay {
     //INFO("allpass_coefficient: %f", allpass_coefficient);
     //INFO("in_pointer: %d", in_pointer);
     //INFO("out_pointer: %d", out_pointer);
+    return true;
   }
   
   void clear()
@@ -257,7 +261,7 @@ struct Interferometer : Module {
   rack::dsp::BiquadFilter master_dcFilter;
   static const int POLY_NUM = 16;
   struct Engine {
-  
+    bool faulted = false;
     AllpassDelay delay_buffer;
     
     // sustain, brightness, coupled string, hammer position
@@ -304,6 +308,7 @@ struct Interferometer : Module {
   
 
   Interferometer() {
+    INFO("initializing");
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
     configParam(BRIGHTNESS_PARAM, 0.f, 1.f, 0.f, "");
     configParam(DECAY_PARAM, 0.f, 0.125f, 0.f, "");
@@ -350,7 +355,9 @@ struct Interferometer : Module {
 
   void set_frequency(float freq, struct Engine *e)
   {
-    //INFO("freq: %f", freq);
+  
+    //TODO: If freq >= 3.33 volts clickiness ensues!
+    INFO("freq: %f", freq);
     
     // this function is only called if an update is made to the frequency.
     // if no value change is made, do nothing
@@ -372,19 +379,31 @@ struct Interferometer : Module {
     // retune due to dispersion filter delay at the primary frequency.
     if (dispersion_enabled) {
       //INFO("dispersion enabled - f = %f", freq);
-      e->delay_buffer.set_delay_samples(sample_rate/freq - e->Df0);
+      if (!e->delay_buffer.set_delay_samples(sample_rate/freq - e->Df0)) {
+        e->faulted = true;
+      }
       //INFO("delay line len updated: %f", eng[ch].delay_line_len);
       // index 0 = v
       //INFO("delay_line_v set samples = %f",sample_rate/freq - e->Df0_v);
       // The minus one is tuning. Probably related to the loop filter.
-      e->delay_line_v.set_delay_samples(sample_rate/freq - e->Df0_v - 1);
-      e->delay_line_h.set_delay_samples(sample_rate/freq*detuning - e->Df0_h - 1);
+      if(!e->delay_line_v.set_delay_samples(sample_rate/freq - e->Df0_v - 1)) {
+        e->faulted = true;
+      }
+      if(!e->delay_line_h.set_delay_samples(sample_rate/freq*detuning - e->Df0_h - 1)) {
+        e->faulted = true;
+      }
     } else {
       //INFO("dispersion disabled - f = %f", freq);
-      e->delay_buffer.set_delay_samples(sample_rate/freq);
+      if(!e->delay_buffer.set_delay_samples(sample_rate/freq)) {
+        e->faulted = true;
+      }
       // index 0 = v
-      e->delay_line_v.set_delay_samples(sample_rate/freq-2);
-      e->delay_line_h.set_delay_samples(sample_rate/freq*detuning-2);
+      if(!e->delay_line_v.set_delay_samples(sample_rate/freq-2)) {
+        e->faulted = true;
+      }
+      if(!e->delay_line_h.set_delay_samples(sample_rate/freq*detuning-2)) {
+        e->faulted = true;
+      }
     }
    
     initial_and_sustained_t60s(freq, &(e->t60_initial), &(e->t60_sustain));
@@ -394,8 +413,10 @@ struct Interferometer : Module {
     // index 1 = h
     sustain_brightness_filter(e->t60_sustain, brightness, freq * detuning,
                               &(e->loop_filter_h));
-                              
-    e->strike_comb_delay.set_delay_samples(strike_position(freq) * sample_rate/freq);
+    
+    if(!e->strike_comb_delay.set_delay_samples(strike_position(freq) * sample_rate/freq)) {
+      e->faulted = true;
+    }
     
     // log that we've updated frequency, so we don't keep doing it again
     // unless it changes.
@@ -444,6 +465,8 @@ struct Interferometer : Module {
       if ((eng[ch].last_trig < 0.7) && (trigger > 0.7)) {
         // set the trigger buffer to 1
         eng[ch].trig_state = 1; 
+        // clear any faults
+        eng[ch].faulted = false;
         
         // clear the allpass delay buffers
         eng[ch].delay_line_v.clear();
@@ -476,7 +499,6 @@ struct Interferometer : Module {
         // if the note value has changed, update the frequency stuff
         // and set gain from velocity.
         if (abs(freq - eng[ch].curr_f0) > 0.1) {
-        
           brightness = params[BRIGHTNESS_PARAM].getValue();
           //INFO("brightness: %f", brightness);
           set_frequency(freq, &eng[ch]);      
@@ -524,6 +546,11 @@ struct Interferometer : Module {
           eng[ch].trig_state = TRIG_OFF;
         }
 
+      }
+
+      // move to the next channel, if this one is faulted.
+      if(eng[ch].faulted) {
+        continue;
       }
 
       // Old loop model
