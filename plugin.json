@@ -16,7 +16,7 @@
     {
       "slug": "Interferometer",
       "name": "Interferometer",
-      "description": "foo",
+      "description": "Piano emulator",
       "tags": [
         "Physical modeling",
         "Polyphonic"
