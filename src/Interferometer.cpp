@@ -461,6 +461,7 @@ struct Interferometer : Module {
       
       // a trigger a rising edge.        
       // allow retriggering.  Arbitrarily the threshold is 0.7
+      // TODO: This should be renamed GATE_INPUT.
       trigger = inputs[TRIG_INPUT].getVoltage(ch);
       if ((eng[ch].last_trig < 0.7) && (trigger > 0.7)) {
         // set the trigger buffer to 1
@@ -570,6 +571,12 @@ struct Interferometer : Module {
         // apply that output DC block filter
         co = eng[ch].dcFilter.process(co) * eng[ch].engine_gain; 
 
+        // nan check
+        if (std::isnan(co)) {
+          FATAL("channel %d attempting to output nan!", ch);
+          // TODO: reset the channel!
+        }
+
       // New loop model       
       } else if (loop_model == 1) {
               
@@ -615,6 +622,12 @@ struct Interferometer : Module {
 
         // loop gain is 1.0 gain
         co = (co_v + co_h) * eng[ch].engine_gain;
+        
+        // nan check
+        if (std::isnan(co)) {
+          FATAL("channel %d attempting to output nan!", ch);
+          // TODO: reset the channel!
+        }
       } 
       
       // sum this channel's output into the master output
