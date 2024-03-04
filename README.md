@@ -1,4 +1,6 @@
-# Interferometer
+# Interferometer Module by OptikEcho
+
+![Interferometer Panel Image](interferometer-panel.png)
 
 ## Introduction
 
@@ -32,6 +34,12 @@ Lessor I/O that may not survive include:
 
 - **Feedback** - This input controls the low pass filter in the old loop model.  This input is on the chopping block.
 
+### Caveats
+
+- I've only tested this under Linux x86_64.
+
+- The long dispersion filter chains add significant delay that can be on the order of the total delay line.  The highest frequency allowed is really limited by the total delay of the filter chain.  This means that high frequency notes may not be achievable with a given filter chain.  For now, if the chain causes a fault, the note just doesn't play.
+
 ### Context Menu
 
 There are two items:
@@ -44,4 +52,4 @@ There are two items:
 
 Many of the ideas and some of the basic structure of this module come from the work of Karl Hiner.  He has a [piano simulation notebook](https://github.com/khiner/notebooks/blob/master/physical_audio_signal_processing/chapter_9_virtual_musical_instruments_part_2.ipynb) that was crucial in helping get this to where it is.  This notebook is Karl's effort to help decompose the mathematics found in Julius O. Smith's [Physical Audio Signal Processing For Virtual Musical Instruments and Audio Effects, Online version](https://ccrma.stanford.edu/~jos/pasp/).  The dispersion filter used with this piano is based upon [Dispersion modeling in waveguide piano synthesis using tunable allpass filter](http://lib.tkk.fi/Diss/2007/isbn9789512290666/article2.pdf).  This is a neat read.
 
-Credit goes to TODO for the soundboard excitation waveform soundboard.wav in the `/res` directory.
+Credit for the soundboard excitation waveform, `soundboard.wav` in the `/res` directory is uncertain.  This waveform is used to excite the piano string.  I got the file from Karl Hiner's notebook, referenced above.  In communications with him, he's unsure where he got it from.  I've spent a number of hours trying to find it online without success.  If you're reading this and you might know, pass the info along to me.  I'd like to credit the person who did the work.  For now, I'm going to live on shaky ground and use it as is.

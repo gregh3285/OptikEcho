@@ -1,16 +1,16 @@
 {
-  "slug": "Interferometer",
-  "name": "Interferometer",
+  "slug": "OptikEcho",
+  "name": "OptikEcho",
   "version": "2.0.0",
-  "license": "proprietary",
-  "brand": "gregh3285",
+  "license": "GPL-3.0-or-later",
+  "brand": "OptikEcho",
   "author": "Greg Hawley",
   "authorEmail": "greg.hawley@ieee.org",
   "authorUrl": "",
   "pluginUrl": "",
   "manualUrl": "",
   "sourceUrl": "",
-  "donateUrl": "",
+  "donateUrl": "https://en.wikipedia.org/wiki/Pay_it_forward",
   "changelogUrl": "",
   "modules": [
     {

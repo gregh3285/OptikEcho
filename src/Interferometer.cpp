@@ -357,7 +357,7 @@ struct Interferometer : Module {
   {
   
     //TODO: If freq >= 3.33 volts clickiness ensues!
-    INFO("freq: %f", freq);
+    //INFO("freq: %f", freq);
     
     // this function is only called if an update is made to the frequency.
     // if no value change is made, do nothing
