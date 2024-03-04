@@ -34,11 +34,13 @@ Lessor I/O that may not survive include:
 
 - **Feedback** - This input controls the low pass filter in the old loop model.  This input is on the chopping block.
 
-### Caveats
+### Caveats and Known Issues
 
 - I've only tested this under Linux x86_64.
 
 - The long dispersion filter chains add significant delay that can be on the order of the total delay line.  The highest frequency allowed is really limited by the total delay of the filter chain.  This means that high frequency notes may not be achievable with a given filter chain.  For now, if the chain causes a fault, the note just doesn't play.
+
+- The exciter waveform is sampled at 44.1 kHz.  If you change the sample rate in VCV Rack to something other than than, that waveform is not resampled.
 
 ### Context Menu
 
