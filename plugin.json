@@ -6,12 +6,12 @@
   "brand": "OptikEcho",
   "author": "Greg Hawley",
   "authorEmail": "greg.hawley@ieee.org",
-  "authorUrl": "",
-  "pluginUrl": "",
-  "manualUrl": "",
-  "sourceUrl": "",
+  "authorUrl": "https://github.com/gregh3285",
+  "pluginUrl": "https://github.com/gregh3285/OptikEcho",
+  "manualUrl": "https://github.com/gregh3285/OptikEcho/blob/main/README.md",
+  "sourceUrl": "https://github.com/gregh3285/OptikEcho",
   "donateUrl": "https://en.wikipedia.org/wiki/Pay_it_forward",
-  "changelogUrl": "",
+  "changelogUrl": "https://github.com/gregh3285/OptikEcho/blob/main/CHANGELOG.md",
   "modules": [
     {
       "slug": "Interferometer",
