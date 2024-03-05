@@ -218,7 +218,7 @@ struct Interferometer : Module {
   //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
-  static const int   BUF_SIZE = 100000;
+  static const int   BUF_SIZE = 150000;
   static const int PULSE_BUF_SIZE = 256;
   // 
 #define NOT_A_NOTE (8675309.f);
@@ -308,15 +308,15 @@ struct Interferometer : Module {
   
 
   Interferometer() {
-    INFO("initializing");
+    //INFO("initializing");
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-    configParam(BRIGHTNESS_PARAM, 0.f, 1.f, 0.f, "");
-    configParam(DECAY_PARAM, 0.f, 0.125f, 0.f, "");
-    configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.f, "");
-    configInput(VOCT_INPUT, "");
-    configInput(TRIG_INPUT, "");
-    configInput(VELOCITY_INPUT, "");
-    configOutput(OUT_OUTPUT, "");
+    configParam(BRIGHTNESS_PARAM, 0.f, 1.f, 0.95f, "Brightness");
+    configParam(DECAY_PARAM, 0.f, 0.125f, 0.f, "Decay");
+    configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.40f, "Delay Feedback Freq");
+    configInput(VOCT_INPUT, "V/Oct");
+    configInput(TRIG_INPUT, "Gate");
+    configInput(VELOCITY_INPUT, "Velocity");
+    configOutput(OUT_OUTPUT, "Output");
     //AllpassDelay::max_size = 0.0;
     
     // DC blocking set to 20.6 Hz
@@ -498,10 +498,10 @@ struct Interferometer : Module {
         float freq = dsp::FREQ_C4 * std::pow(2.f, pitch);
         
         // if the note value has changed, update the frequency stuff
-        // and set gain from velocity.
-        if (abs(freq - eng[ch].curr_f0) > 0.1) {
+        // and set gain from velocity.  
+        if ((abs(freq - eng[ch].curr_f0) > 0.1) || (eng[ch].trig_state == 1)) {
           brightness = params[BRIGHTNESS_PARAM].getValue();
-          //INFO("brightness: %f", brightness);
+          INFO("frequency: %f", freq);
           set_frequency(freq, &eng[ch]);      
           
           // note gain based upon velocity.
@@ -555,7 +555,7 @@ struct Interferometer : Module {
       }
 
       // Old loop model
-      if (loop_model == 0) {
+      if (loop_model == 1) {
       
         float feedback_val = eng[ch].delay_buffer.get_next_out();
         co += (1.0f - ch_decay) * eng[ch].delayFilter.process(feedback_val);
@@ -578,7 +578,7 @@ struct Interferometer : Module {
         }
 
       // New loop model       
-      } else if (loop_model == 1) {
+      } else if (loop_model == 0) {
               
         // exciter is already in co.
         
@@ -882,7 +882,7 @@ struct InterferometerWidget : ModuleWidget {
 	    &module->dispersion_enabled));
     // Controls int Module::fractional delay
     menu->addChild(createIndexPtrSubmenuItem("Model",
-	    {"Old", "New"},
+	    {"New", "Old"},
 	    &module->loop_model));
   }
 };
@@ -925,7 +925,10 @@ int load(float *extbuff){
     constexpr char fmt_id[4] = {'f','m','t',' '};
     constexpr char data_id[4] = {'d','a','t','a'};
 
+    // OLD
     ifstream ifs{asset::plugin(pluginInstance, "res/soundboard.wav").data(), ios_base::binary};
+    // NEW
+    //ifstream ifs{asset::plugin(pluginInstance, "res/piano_impulse.wav").data(), ios_base::binary};
     //INFO("soundboard location %s", asset::plugin(pluginInstance, "res/soundboard.wav").data());
     if (!ifs){
         FATAL("cannot open soundboard file.");
@@ -981,7 +984,7 @@ int load(float *extbuff){
         FATAL("problem reading data.");
         return -1;
     }
-    INFO("Loaded soundboard impulse response file.");
+    INFO("Loaded soundboard impulse response file.  %d samples", ebi);
     // return the number of samples in the one channel.
     return ebi;
 }
