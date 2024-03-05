@@ -42,13 +42,15 @@ Lessor I/O that may not survive include:
 
 - The exciter waveform is sampled at 44.1 kHz.  If you change the sample rate in VCV Rack to something other than than, that waveform is not resampled.
 
+- Changing Loop Model or Dispersion Enabled can put individual engines in a confused state with regard to pitch.  It has to do with how the engine caches previous pitch and filter parameters.
+
 ### Context Menu
 
-There are two items:
+There are two items. 
 
 - **Loop Model** which model to use.
 
-- **Dispersion** set whether is string dispersion enabled.
+- **Dispersion Enabled** set whether is string dispersion enabled.
 
 ## Credits
 
