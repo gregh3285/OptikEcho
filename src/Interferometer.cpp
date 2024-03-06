@@ -505,10 +505,6 @@ struct Interferometer : Module {
           INFO("frequency: %f", freq);
           set_frequency(freq, &eng[ch]);     
           
-          if (hammer_enabled) {
-            hammer_pulse_and_gain(freq, 0.9f, &eng[ch]);
-          }
-          
           // note gain based upon velocity.
           // https://www.hedsound.com/p/midi-velocity-db-dynamics-db-and.html
           // 10 V = 0 dbV
@@ -532,8 +528,16 @@ struct Interferometer : Module {
           } else {
             cvvel = 10.0f;
           }
-          float cvdb = -4.12 * (10.0 - cvvel) + FUDGE_DB;
-          eng[ch].engine_gain = pow(10, (cvdb / 20.0));
+          if (hammer_enabled) {
+            // gain is set by the hammer waveform (mostly)
+            hammer_pulse_and_gain(freq, cvvel/10.0f, &eng[ch]);
+            eng[ch].engine_gain = 20.f;  // a fudge constant...
+          } else {
+            // gain is set by the MIDI db (chart above)
+            float cvdb = -4.12 * (10.0 - cvvel) + FUDGE_DB;
+            eng[ch].engine_gain = pow(10, (cvdb / 20.0));
+          }
+          
           //INFO("cvvel %f, cvdb %f, engine_gain %f", cvvel, cvdb, eng[ch].engine_gain);
         }
 
@@ -554,7 +558,7 @@ struct Interferometer : Module {
           for(int con_ndx = 0; con_ndx < eng[ch].pulse_length; con_ndx++) {
             int e_ndx = (eng[ch].trig_state -1) - eng[ch].pulse_length + con_ndx + 1;
             if ((e_ndx >= 0) && (e_ndx < soundboard_size)) { 
-              hammer_out += eng[ch].pulse_buf[con_ndx] * soundboard[e_ndx];
+              hammer_out += eng[ch].pulse_buf[con_ndx] * soundboard[e_ndx] * eng[ch].hammer_gain;
             }
           }
           co = hammer_out;
@@ -793,6 +797,8 @@ struct Interferometer : Module {
   // Anders Askenfelt and Erik Janson "From touch to string vibrations"
   // Five Lectures on the Acoustics of the Piano
   // http://www.speech.kth.se/music/5_lectures/askenflt/askenflt.html
+  // frequency in Hz
+  // amplitude 0 to 1
   void hammer_pulse_and_gain(float frequency, float amplitude, struct Engine *e)
   {
     // all units are in milliseconds
@@ -854,6 +860,7 @@ struct Interferometer : Module {
     json_t* rootJ = json_object();
     json_object_set_new(rootJ, "loop_model", json_integer(loop_model));
     json_object_set_new(rootJ, "dispersion_enabled", json_integer(dispersion_enabled));
+    json_object_set_new(rootJ, "hammer_enabled", json_integer(hammer_enabled));
     return rootJ;
   } 
 
@@ -866,6 +873,10 @@ struct Interferometer : Module {
     modeJ = json_object_get(rootJ, "dispersion_enabled");
     if (modeJ)
       dispersion_enabled = json_integer_value(modeJ);
+
+    modeJ = json_object_get(rootJ, "hammer_enabled");
+    if (modeJ)
+      hammer_enabled = json_integer_value(modeJ);
   }
   
 };
