@@ -445,8 +445,10 @@ struct Interferometer : Module {
     }
     lights[ACTIVE_LIGHT].setBrightness(blinkPhase < 0.5f ? 1.f : 0.f);
    
-    // loop through channels
-    for (int ch=0; ch<POLY_NUM; ch++) {
+    // loop through connected channels. 
+    // use the gate (not velocity of voct) 
+    // to determine which channels are connected.
+    for (int ch=0; ch<inputs[TRIG_INPUT].getChannels(); ch++) {
     
       //if (delay_fractional == 1) {
       //  eng[ch].dispersion_enabled = true;
@@ -476,7 +478,7 @@ struct Interferometer : Module {
         eng[ch].strike_comb_delay.clear();
       }
       
-      // handle not goes away (real note decay).
+      // handle note going away (real note decay).
       if (trigger < 0.7) {
         ch_decay = 0.06;
       }
@@ -500,6 +502,9 @@ struct Interferometer : Module {
         
         // if the note value has changed, update the frequency stuff
         // and set gain from velocity.  
+        // TODO: Also need to check for changes to amplitude...
+        //       as velocity may change after the gate clock arrives
+        //       or changes in frequency occur...
         if ((abs(freq - eng[ch].curr_f0) > 0.1) || (eng[ch].trig_state == 1)) {
           brightness = params[BRIGHTNESS_PARAM].getValue();
           INFO("frequency: %f", freq);

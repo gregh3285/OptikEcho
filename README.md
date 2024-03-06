@@ -8,7 +8,7 @@ This is a polyphonic piano emulator.
 
 Piano simulation is difficult.  At this point, this module is probably only sufficient for using it as a tool in the context of other work.  I've pushed George Winston midi files at this.  They do okay.  But, it's not a Steinway, by any means.
 
-Interferometer is just a name that's unique.  I started working on this shortly after I finished Dr. Aspect and Dr. Brune's Coursera course, [Quantum Optics 1: Single Photons](https://www.coursera.org/learn/quantum-optics-single-photon).  It stuck.
+Interferometer is just a name that's unique.  I started working on this shortly after I finished Dr. Aspect and Dr. Brune's Coursera course, [Quantum Optics 1: Single Photons](https://www.coursera.org/learn/quantum-optics-single-photon).  It stuck.  OptikEcho sounded cool and it looks like no one is using it -- at least it wasn't google-able.
 
 ## Use
 
@@ -34,6 +34,16 @@ Lessor I/O that may not survive include:
 
 - **Feedback** - This input controls the low pass filter in the old loop model.  This input is on the chopping block.
 
+### Context Menu
+
+There are two items. 
+
+- **Loop Model** which model to use.
+
+- **Dispersion Enabled** set whether is string dispersion enabled.
+
+- **Hammer Enabled** determines if hammer processing is enabled.  if it is, a hammer pulse is convolved with the exciter waveform.  The hammer pulse is based upon velocity and frequency.
+
 ### Caveats and Known Issues
 
 - I've only tested this under Linux x86_64.
@@ -43,14 +53,6 @@ Lessor I/O that may not survive include:
 - The exciter waveform is sampled at 44.1 kHz.  If you change the sample rate in VCV Rack to something other than than, that waveform is not resampled.
 
 - Changing Loop Model or Dispersion Enabled can put individual engines in a confused state with regard to pitch.  It has to do with how the engine caches previous pitch and filter parameters.
-
-### Context Menu
-
-There are two items. 
-
-- **Loop Model** which model to use.
-
-- **Dispersion Enabled** set whether is string dispersion enabled.
 
 ## Credits
 
