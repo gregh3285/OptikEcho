@@ -215,6 +215,7 @@ struct Interferometer : Module {
   int loop_model=0;
   bool dispersion_enabled = true;
   float sample_rate;
+  bool hammer_enabled = false;
   //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
@@ -502,7 +503,11 @@ struct Interferometer : Module {
         if ((abs(freq - eng[ch].curr_f0) > 0.1) || (eng[ch].trig_state == 1)) {
           brightness = params[BRIGHTNESS_PARAM].getValue();
           INFO("frequency: %f", freq);
-          set_frequency(freq, &eng[ch]);      
+          set_frequency(freq, &eng[ch]);     
+          
+          if (hammer_enabled) {
+            hammer_pulse_and_gain(freq, 0.9f, &eng[ch]);
+          }
           
           // note gain based upon velocity.
           // https://www.hedsound.com/p/midi-velocity-db-dynamics-db-and.html
@@ -540,7 +545,22 @@ struct Interferometer : Module {
         //       existing pianos notes.
         // The subtraction of 1 is because we start with trig_state = 1.  
         // That should be index zero in the soundboard waveform.
-        co = 8.0f * soundboard[eng[ch].trig_state - 1];
+        if (hammer_enabled) {
+          // perform the convolution of the hammer pulse and the soundboard
+          // at position trig_state -1.
+          // The hammer pulse is symmetric, so it doesn't have to be reversed.
+          // TODO: I'm worried about the computation intensity of this!
+          float hammer_out = 0.f;
+          for(int con_ndx = 0; con_ndx < eng[ch].pulse_length; con_ndx++) {
+            int e_ndx = (eng[ch].trig_state -1) - eng[ch].pulse_length + con_ndx + 1;
+            if ((e_ndx >= 0) && (e_ndx < soundboard_size)) { 
+              hammer_out += eng[ch].pulse_buf[con_ndx] * soundboard[e_ndx];
+            }
+          }
+          co = hammer_out;
+        } else {
+          co = 8.0f * soundboard[eng[ch].trig_state - 1];
+        }
         
         eng[ch].trig_state++;
         if ((eng[ch].trig_state - 1) >= soundboard_size) {
@@ -807,11 +827,12 @@ struct Interferometer : Module {
     if (pulse_length > PULSE_BUF_SIZE) {
       FATAL("hammer pulse too long: %d", pulse_length);
     }
+    INFO("pulse_length %d", pulse_length);
     for (int i = 0; i < pulse_length; i++) {
       float r = (float)i / (float)(pulse_length - 1) - 0.5f;  // -0.5 to + 0.5
       e->pulse_buf[i] = 0.5 + 0.5*cos(2.0 * M_PI * r);
       pulse_sum += e->pulse_buf[i];
-      INFO("pulse_buff %d %f", i, e->pulse_buf[i]);
+      //INFO("pulse_buff %d %f", i, e->pulse_buf[i]);
     }
     INFO("pulse_sum: %f",pulse_sum);
     e->hammer_gain = amplitude/pulse_sum;
@@ -876,14 +897,16 @@ struct InterferometerWidget : ModuleWidget {
   void appendContextMenu(Menu* menu) override {
     Interferometer* module = getModule<Interferometer>();
 
-    // Controls int Module::exciter
+    // Controls various things
     menu->addChild(createIndexPtrSubmenuItem("Dispersion Enabled",
 	    {"False", "True"},
 	    &module->dispersion_enabled));
-    // Controls int Module::fractional delay
     menu->addChild(createIndexPtrSubmenuItem("Model",
 	    {"New", "Old"},
 	    &module->loop_model));
+    menu->addChild(createIndexPtrSubmenuItem("Hammer Enabled",
+	    {"False", "True"},
+	    &module->hammer_enabled));
   }
 };
 
@@ -926,9 +949,9 @@ int load(float *extbuff){
     constexpr char data_id[4] = {'d','a','t','a'};
 
     // OLD
-    ifstream ifs{asset::plugin(pluginInstance, "res/soundboard.wav").data(), ios_base::binary};
+    //ifstream ifs{asset::plugin(pluginInstance, "res/soundboard.wav").data(), ios_base::binary};
     // NEW
-    //ifstream ifs{asset::plugin(pluginInstance, "res/piano_impulse.wav").data(), ios_base::binary};
+    ifstream ifs{asset::plugin(pluginInstance, "res/piano_impulse.wav").data(), ios_base::binary};
     //INFO("soundboard location %s", asset::plugin(pluginInstance, "res/soundboard.wav").data());
     if (!ifs){
         FATAL("cannot open soundboard file.");
