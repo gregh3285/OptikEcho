@@ -20,7 +20,7 @@ The main I/O to this module are the these:
 
 - **GATE** is a polyphonic input for the note.  The rising edge of GATE triggers the start of a note.  It is sustained until GATE is removed.  The threshold for gate is set (without hysteresis) at 0.7 volts. 
 
-- **VELOCITY** is a polyphonic input for the velocity of the note.  The model currently just updates the gain of the note based upon the input.  This follows the guidance for velocity from 0 volts (*ppp*, quiet) to 10 volts (*fff*, loud).  Sending 0 does *not* shut the note off.  Note on and note off is controlled by the GATE.  Velocity is sampled when the V/OCT causes an update to internal state for a channel.
+- **VELOCITY** is a polyphonic input for the velocity of the note.  The model currently just updates the gain of the note based upon the input.  This follows the guidance for velocity from 0 volts (*ppp*, quiet) to 10 volts (*fff*, loud).  Sending 0 does *not* shut the note off.  Note on and note off is controlled by the GATE.  Velocity is sampled when the V/OCT causes an update to internal state for a channel.  If nothing is connected to VELOCITY, 50% (5 V) is assumed.
 
 - **OUT** is a *monophonic* output of the piano simulator.
 
@@ -38,13 +38,18 @@ Lessor I/O that may not survive include:
 
 There are two items. 
 
-- **Loop Model** which model to use.
+- **Loop Model** which model to use.  The old model is just waiting for me to remove it.  
+  It doesn't have a lot of the stuff the new model has.
 
 - **Dispersion Enabled** set whether is string dispersion enabled.
 
 - **Hammer Enabled** determines if hammer processing is enabled.  if it is, a hammer pulse is convolved with the exciter waveform.  The hammer pulse is based upon velocity and frequency.
 
+- **Bridge Enabled** determines if the strike position filter is enabled.  The name of this menu item is a misnomer.
+
 ### Caveats and Known Issues
+
+- The sound only okay.  The energy decay relief maps look a lot different than a real piano.  Psycho-acoustically it sound muddy.
 
 - I've only tested this under Linux x86_64.
 
@@ -54,8 +59,6 @@ There are two items.
 
 - Changing Loop Model or Dispersion Enabled can put individual engines in a confused state with regard to pitch.  It has to do with how the engine caches previous pitch and filter parameters.
 
-## Credits
+## References
 
 Many of the ideas and some of the basic structure of this module come from the work of Karl Hiner.  He has a [piano simulation notebook](https://github.com/khiner/notebooks/blob/master/physical_audio_signal_processing/chapter_9_virtual_musical_instruments_part_2.ipynb) that was crucial in helping get this to where it is.  This notebook is Karl's effort to help decompose the mathematics found in Julius O. Smith's [Physical Audio Signal Processing For Virtual Musical Instruments and Audio Effects, Online version](https://ccrma.stanford.edu/~jos/pasp/).  The dispersion filter used with this piano is based upon [Dispersion modeling in waveguide piano synthesis using tunable allpass filter](http://lib.tkk.fi/Diss/2007/isbn9789512290666/article2.pdf).  This is a neat read.
-
-Credit for the soundboard excitation waveform, `soundboard.wav` in the `/res` directory is uncertain.  This waveform is used to excite the piano string.  I got the file from Karl Hiner's notebook, referenced above.  In communications with him, he's unsure where he got it from.  I've spent a number of hours trying to find it online without success.  If you're reading this and you might know, pass the info along to me.  I'd like to credit the person who did the work.  For now, I'm going to live on shaky ground and use it as is.
