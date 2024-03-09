@@ -215,7 +215,8 @@ struct Interferometer : Module {
   int loop_model=0;
   bool dispersion_enabled = true;
   float sample_rate;
-  bool hammer_enabled = false;
+  bool hammer_enabled = true;
+  bool bridge_enabled = true;
   //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
@@ -231,7 +232,7 @@ struct Interferometer : Module {
   const float long_sustain_excite_gain = 0.75;
   
   float brightness = 0.95;
-  float detuning = 0.9992;
+  float detuning = 0.999;
   float coupling_amount = 0.01;
    
   // soundboard storage
@@ -286,6 +287,9 @@ struct Interferometer : Module {
     rack::dsp::BiquadFilter dcFilter;
     float last_trig = 0.f;
     
+    rack::dsp::BiquadFilter loopFilter_v;
+    rack::dsp::BiquadFilter loopFilter_h;
+    
     // dispersion filter
     float Df0 = 0.f;        // dispersion filter delay and fundamental.
     float a1 = 0.0f;
@@ -337,6 +341,8 @@ struct Interferometer : Module {
     // frequency, q, gain_labeled_as_v.  
     for (int ch = 0; ch < POLY_NUM; ch++) {
       eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
+      eng[ch].loopFilter_v.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
+      eng[ch].loopFilter_h.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.3, 0.5, 0.0); 
       // highpass stuff above 4 or 5 Hz
       eng[ch].dcFilter.setParameters(rack::dsp::BiquadFilter::Type::HIGHPASS, 20.6f/sample_rate, 0.5, 0.0); 
     }
@@ -367,6 +373,9 @@ struct Interferometer : Module {
     update_dispersion_values(freq, e->M, B, sample_rate, &(e->Df0), &(e->a1));
     update_dispersion_values(freq, e->M, B, sample_rate, &(e->Df0_v), &(e->a1_v));
     update_dispersion_values(freq*detuning, e->M, B, sample_rate, &(e->Df0_h), &(e->a1_h));
+    
+    e->loopFilter_v.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.4, 0.5, 0.0); 
+    e->loopFilter_h.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, 0.4, 0.5, 0.0);
     
     // update all M allpass filters in the cascade.
     for (int j = 0; j < e->M; j++) {
@@ -531,7 +540,7 @@ struct Interferometer : Module {
           if (inputs[VELOCITY_INPUT].isConnected()) {
             cvvel = math::clamp(inputs[VELOCITY_INPUT].getVoltage(ch), 0.0f, 10.0f); 
           } else {
-            cvvel = 10.0f;
+            cvvel = 5.0f;
           }
           if (hammer_enabled) {
             // gain is set by the hammer waveform (mostly)
@@ -612,7 +621,9 @@ struct Interferometer : Module {
         // exciter is already in co.
         
         // TODO: parameter for tuning this?!
-        co -= eng[ch].strike_comb_delay.tick(co);
+        if (bridge_enabled) {
+          co -= eng[ch].strike_comb_delay.tick(co);
+        }
        
         //float into_loop_filter;
         //float back_into_delay_line; 
@@ -627,6 +638,7 @@ struct Interferometer : Module {
         // TODO: The order of operation is different from the notebook.  Is that relevant?
         feedback_val = eng[ch].delay_line_v.get_next_out();
         // Loop filter appears broken!
+        feedback_val = eng[ch].loopFilter_v.process(feedback_val);
         co_v += eng[ch].loop_filter_v.process(feedback_val);
         if (dispersion_enabled) {
           //back_into_delay_line = self.dispersion_filters[i].tick(back_into_delay_line);
@@ -639,6 +651,7 @@ struct Interferometer : Module {
 
         // h index 1
         feedback_val = eng[ch].delay_line_h.get_next_out();
+        feedback_val = eng[ch].loopFilter_h.process(feedback_val);
         // Loop filter appears broken!
         co_h += eng[ch].loop_filter_h.process(feedback_val);
         if (dispersion_enabled) {
@@ -866,6 +879,7 @@ struct Interferometer : Module {
     json_object_set_new(rootJ, "loop_model", json_integer(loop_model));
     json_object_set_new(rootJ, "dispersion_enabled", json_integer(dispersion_enabled));
     json_object_set_new(rootJ, "hammer_enabled", json_integer(hammer_enabled));
+    json_object_set_new(rootJ, "bridge_enabled", json_integer(bridge_enabled));
     return rootJ;
   } 
 
@@ -882,6 +896,10 @@ struct Interferometer : Module {
     modeJ = json_object_get(rootJ, "hammer_enabled");
     if (modeJ)
       hammer_enabled = json_integer_value(modeJ);
+ 
+    modeJ = json_object_get(rootJ, "bridge_enabled");
+    if (modeJ)
+      bridge_enabled = json_integer_value(modeJ);
   }
   
 };
@@ -923,6 +941,10 @@ struct InterferometerWidget : ModuleWidget {
     menu->addChild(createIndexPtrSubmenuItem("Hammer Enabled",
 	    {"False", "True"},
 	    &module->hammer_enabled));
+    menu->addChild(createIndexPtrSubmenuItem("Bridge Enabled",
+	    {"False", "True"},
+	    &module->bridge_enabled));
+	
   }
 };
 
@@ -1025,6 +1047,18 @@ int load(float *extbuff){
     }
     INFO("Loaded soundboard impulse response file.  %d samples", ebi);
     // return the number of samples in the one channel.
+    
+    // run the waveform through a low-pass filter
+    //rack::dsp::BiquadFilter lowPassFilter;
+    //lowPassFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS_1POLE, 1000.0/44100.0, 0.5, 0.0);
+    //for (int lcv = 0; lcv < ebi; lcv++) {
+    //  extbuff[lcv] = lowPassFilter.process(extbuff[lcv]);
+    //}
+    //for (int lcv = 0; lcv < 2000; lcv++) {
+    //  extbuff[lcv] = (float)lcv/2000.0 * extbuff[lcv];
+    //}
+    
+    INFO("Soundboard filtered.");
     return ebi;
 }
 
