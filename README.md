@@ -36,16 +36,16 @@ Lessor I/O that may not survive include:
 
 ### Context Menu
 
-There are two items. 
+There are several items in the context menu for this module.
 
-- **Loop Model** which model to use.  The old model is just waiting for me to remove it.  
+- **Loop Model** which model to use.  The old model is just waiting for me to remove it.
   It doesn't have a lot of the stuff the new model has.
 
 - **Dispersion Enabled** set whether is string dispersion enabled.
 
 - **Hammer Enabled** determines if hammer processing is enabled.  if it is, a hammer pulse is convolved with the exciter waveform.  The hammer pulse is based upon velocity and frequency.
 
-- **Bridge Enabled** determines if the strike position filter is enabled.  The name of this menu item is a misnomer.
+- **Strike Position Enabled** determines if the strike position filter is enabled.
 
 ### Caveats and Known Issues
 
@@ -58,6 +58,7 @@ There are two items.
 - The exciter waveform is sampled at 44.1 kHz.  If you change the sample rate in VCV Rack to something other than than, that waveform is not resampled.
 
 - Changing Loop Model or Dispersion Enabled can put individual engines in a confused state with regard to pitch.  It has to do with how the engine caches previous pitch and filter parameters.
+
 
 ## References
 

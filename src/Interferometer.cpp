@@ -216,7 +216,8 @@ struct Interferometer : Module {
   bool dispersion_enabled = true;
   float sample_rate;
   bool hammer_enabled = true;
-  bool bridge_enabled = true;
+  bool strike_pos_enabled = true;
+  bool mode_coupling_enabled = true;
   //static const int TRIG_ON = 1;
 
   // size of the buffer used for the string
@@ -276,6 +277,8 @@ struct Interferometer : Module {
     AllpassDelay strike_comb_delay;
     float delay_line_out_v = 0;
     float delay_line_out_h = 0;
+    
+    float feed_forward_co_h = 0;
     
     // gain  10v velocity -> 100%.  0v = 0%.
     float engine_gain = 1.0f;
@@ -621,7 +624,7 @@ struct Interferometer : Module {
         // exciter is already in co.
         
         // TODO: parameter for tuning this?!
-        if (bridge_enabled) {
+        if (strike_pos_enabled) {
           co -= eng[ch].strike_comb_delay.tick(co);
         }
        
@@ -632,13 +635,19 @@ struct Interferometer : Module {
         float co_h;
         
         co_v = co;
-        co_h = co * long_sustain_excite_gain;
+        //co_h = co * long_sustain_excite_gain;
+        co_h = co;
 
         // v  index 0 
         // TODO: The order of operation is different from the notebook.  Is that relevant?
         feedback_val = eng[ch].delay_line_v.get_next_out();
         // Loop filter appears broken!
-        feedback_val = eng[ch].loopFilter_v.process(feedback_val);
+        if (mode_coupling_enabled) {
+          feedback_val = eng[ch].loopFilter_v.process(feedback_val*(1-coupling_amount)+
+                                                      eng[ch].feed_forward_co_h*coupling_amount);
+        } else {
+          feedback_val = eng[ch].loopFilter_v.process(feedback_val);
+        }
         co_v += eng[ch].loop_filter_v.process(feedback_val);
         if (dispersion_enabled) {
           //back_into_delay_line = self.dispersion_filters[i].tick(back_into_delay_line);
@@ -651,7 +660,11 @@ struct Interferometer : Module {
 
         // h index 1
         feedback_val = eng[ch].delay_line_h.get_next_out();
-        feedback_val = eng[ch].loopFilter_h.process(feedback_val);
+        if (mode_coupling_enabled) {
+          feedback_val = eng[ch].loopFilter_h.process(feedback_val*(1-coupling_amount)+co_v*coupling_amount);
+        } else {
+          feedback_val = eng[ch].loopFilter_h.process(feedback_val);
+        }
         // Loop filter appears broken!
         co_h += eng[ch].loop_filter_h.process(feedback_val);
         if (dispersion_enabled) {
@@ -660,6 +673,7 @@ struct Interferometer : Module {
             co_h = eng[ch].dispersionFilter_h[j].process(co_h);
           }
         }
+        eng[ch].feed_forward_co_h = co_h;
         eng[ch].delay_line_h.tick((1.0 - ch_decay) * co_h );
 
         // loop gain is 1.0 gain
@@ -879,7 +893,8 @@ struct Interferometer : Module {
     json_object_set_new(rootJ, "loop_model", json_integer(loop_model));
     json_object_set_new(rootJ, "dispersion_enabled", json_integer(dispersion_enabled));
     json_object_set_new(rootJ, "hammer_enabled", json_integer(hammer_enabled));
-    json_object_set_new(rootJ, "bridge_enabled", json_integer(bridge_enabled));
+    json_object_set_new(rootJ, "strike_pos_enabled", json_integer(strike_pos_enabled));
+    json_object_set_new(rootJ, "mode_coupling_enabled", json_integer(mode_coupling_enabled));
     return rootJ;
   } 
 
@@ -897,9 +912,14 @@ struct Interferometer : Module {
     if (modeJ)
       hammer_enabled = json_integer_value(modeJ);
  
-    modeJ = json_object_get(rootJ, "bridge_enabled");
+    modeJ = json_object_get(rootJ, "strike_pos_enabled");
     if (modeJ)
-      bridge_enabled = json_integer_value(modeJ);
+      strike_pos_enabled = json_integer_value(modeJ);
+      
+    modeJ = json_object_get(rootJ, "mode_coupling_enabled");
+    if (modeJ)
+      mode_coupling_enabled = json_integer_value(modeJ);
+      
   }
   
 };
@@ -941,10 +961,12 @@ struct InterferometerWidget : ModuleWidget {
     menu->addChild(createIndexPtrSubmenuItem("Hammer Enabled",
 	    {"False", "True"},
 	    &module->hammer_enabled));
-    menu->addChild(createIndexPtrSubmenuItem("Bridge Enabled",
+    menu->addChild(createIndexPtrSubmenuItem("Strike Position Enabled",
 	    {"False", "True"},
-	    &module->bridge_enabled));
-	
+	    &module->strike_pos_enabled));
+    menu->addChild(createIndexPtrSubmenuItem("Mode Coupling Enabled",
+	    {"False", "True"},
+	    &module->mode_coupling_enabled));	
   }
 };
 
