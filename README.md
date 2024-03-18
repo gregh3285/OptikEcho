@@ -8,8 +8,6 @@ This is a polyphonic piano emulator.
 
 Piano simulation is difficult.  At this point, this module is probably only sufficient for using it as a tool in the context of other work.  I've pushed George Winston midi files at this.  They do okay.  But, it's not a Steinway, by any means.
 
-Interferometer is just a name that's unique.  I started working on this shortly after I finished Dr. Aspect and Dr. Brune's Coursera course, [Quantum Optics 1: Single Photons](https://www.coursera.org/learn/quantum-optics-single-photon).  It stuck.  OptikEcho sounded cool and it looks like no one is using it -- at least it wasn't google-able.
-
 ## Use
 
 ### Inputs, Outputs and Parameters
@@ -63,3 +61,7 @@ There are several items in the context menu for this module.
 ## References
 
 Many of the ideas and some of the basic structure of this module come from the work of Karl Hiner.  He has a [piano simulation notebook](https://github.com/khiner/notebooks/blob/master/physical_audio_signal_processing/chapter_9_virtual_musical_instruments_part_2.ipynb) that was crucial in helping get this to where it is.  This notebook is Karl's effort to help decompose the mathematics found in Julius O. Smith's [Physical Audio Signal Processing For Virtual Musical Instruments and Audio Effects, Online version](https://ccrma.stanford.edu/~jos/pasp/).  The dispersion filter used with this piano is based upon [Dispersion modeling in waveguide piano synthesis using tunable allpass filter](http://lib.tkk.fi/Diss/2007/isbn9789512290666/article2.pdf).  This is a neat read.
+
+## The Name
+
+Interferometer is just a name that's unique.  I started working on this shortly after I finished Dr. Aspect and Dr. Brune's Coursera course, [Quantum Optics 1: Single Photons](https://www.coursera.org/learn/quantum-optics-single-photon).  It stuck.  OptikEcho sounded cool and it looks like no one is using it -- at least it wasn't google-able.

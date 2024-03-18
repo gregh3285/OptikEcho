@@ -22,7 +22,6 @@ struct TAllpassFilter : rack::dsp::IIRFilter<2, 2, T> {
       this->b[1] = 1.f;
       this->a[0] = a1;
     }
-    // TODO: Explore that this really is an allpass filter.
     
 };
 typedef TAllpassFilter<float> AllpassFilter;
@@ -129,13 +128,6 @@ struct TAllpassDelay {
     return next_out;
   }
   
-  //void set_max_delay_samples(int max_delay_samples)
-  //{
-    // TODO: huh?
-    //if max_delay_samples >= self.inputs.size:
-    //  self.inputs = np.concatenate([self.inputs, np.zeros(max_delay_samples + 1)])
-  //}
-  
   bool set_delay_samples(float new_delay_samples)
   // return true if successful, false if not
   {
@@ -146,7 +138,6 @@ struct TAllpassDelay {
     
     if ((new_delay_samples < 0.5) || (new_delay_samples > (ALLPASS_BUF_SIZE-2))) {
       FATAL("new delay samples %f", new_delay_samples);
-      // TODO: if this happens, the what?  Fault the channel?
       return false;
     }
 
@@ -156,7 +147,7 @@ struct TAllpassDelay {
     while (fractional_out_pointer < 0.f) {
       fractional_out_pointer += ALLPASS_BUF_SIZE;
     }
-    out_pointer = fractional_out_pointer; // cast from float to int.  TODO: test this works.
+    out_pointer = fractional_out_pointer; // cast from float to int.  
     if (out_pointer == ALLPASS_BUF_SIZE) {
       out_pointer = 0;
     }
@@ -285,6 +276,7 @@ struct Interferometer : Module {
     
     // trigger state
     int trig_state = 0;
+
     // create a biquad filter to control the feedback through the delay filter.
     rack::dsp::BiquadFilter delayFilter;
     rack::dsp::BiquadFilter dcFilter;
@@ -311,6 +303,9 @@ struct Interferometer : Module {
     int pulse_length = 0;
     float pulse_buf[PULSE_BUF_SIZE];
     float hammer_gain = 0.0f;
+    
+    float soundboard_gain = 1.0;
+
   };
   Engine eng[POLY_NUM];
   
@@ -365,10 +360,7 @@ struct Interferometer : Module {
 
   void set_frequency(float freq, struct Engine *e)
   {
-  
-    //TODO: If freq >= 3.33 volts clickiness ensues!
-    //INFO("freq: %f", freq);
-    
+      
     // this function is only called if an update is made to the frequency.
     // if no value change is made, do nothing
     float B = b_from_freq(freq);
@@ -384,7 +376,7 @@ struct Interferometer : Module {
     for (int j = 0; j < e->M; j++) {
       e->dispersionFilter[j].setParameter(e->a1);
       e->dispersionFilter_v[j].setParameter(e->a1_v);
-      // TODO: not right: h has different frequency.
+      // Assumption.  The detuning of h is not relevant to setting dispersion filters.
       e->dispersionFilter_h[j].setParameter(e->a1_h);
     }
     
@@ -470,7 +462,7 @@ struct Interferometer : Module {
       float ch_decay = decay;
     
       // Q critically damped is 0.5
-      // TODO: No longer useful?
+      // This is only used for the old model.
       eng[ch].delayFilter.setParameters(rack::dsp::BiquadFilter::Type::LOWPASS, feedback_filter_param, 0.5, 0.0);
     
       
@@ -493,15 +485,13 @@ struct Interferometer : Module {
       // handle note going away (real note decay).
       if (trigger < 0.7) {
         ch_decay = 0.06;
+        eng[ch].soundboard_gain *= 0.97; // decay the soundboard sample to 0;
+
       }
       
       // store away current sample.
       eng[ch].last_trig = trigger;
       
-      //if (eng[ch].trig_state == 1) {
-      //  hammer_pulse_and_gain(1567.98, 0.9, &eng[ch]);
-      //}
-
       // if we are currently triggered and outputting an impulse,
       if (eng[ch].trig_state != TRIG_OFF) {
         // sample the frequency at the point where we are triggering
@@ -520,7 +510,9 @@ struct Interferometer : Module {
         if ((abs(freq - eng[ch].curr_f0) > 0.1) || (eng[ch].trig_state == 1)) {
           brightness = params[BRIGHTNESS_PARAM].getValue();
           INFO("frequency: %f", freq);
-          set_frequency(freq, &eng[ch]);     
+          set_frequency(freq, &eng[ch]);   
+          
+          eng[ch].soundboard_gain = 1.0f;
           
           // note gain based upon velocity.
           // https://www.hedsound.com/p/midi-velocity-db-dynamics-db-and.html
@@ -570,7 +562,6 @@ struct Interferometer : Module {
           // perform the convolution of the hammer pulse and the soundboard
           // at position trig_state -1.
           // The hammer pulse is symmetric, so it doesn't have to be reversed.
-          // TODO: I'm worried about the computation intensity of this!
           float hammer_out = 0.f;
           for(int con_ndx = 0; con_ndx < eng[ch].pulse_length; con_ndx++) {
             int e_ndx = (eng[ch].trig_state -1) - eng[ch].pulse_length + con_ndx + 1;
@@ -578,9 +569,9 @@ struct Interferometer : Module {
               hammer_out += eng[ch].pulse_buf[con_ndx] * soundboard[e_ndx] * eng[ch].hammer_gain;
             }
           }
-          co = hammer_out;
+          co = hammer_out * eng[ch].soundboard_gain;
         } else {
-          co = 8.0f * soundboard[eng[ch].trig_state - 1];
+          co = 8.0f * soundboard[eng[ch].trig_state - 1] * eng[ch].soundboard_gain;
         }
         
         eng[ch].trig_state++;
@@ -707,7 +698,6 @@ struct Interferometer : Module {
                                  float frequency,
                                  TwoZeroFilter *loop_filter)
   {
-    // TODO: This doesn't seem to do much?!
     //INFO("sustain_seconds %f", sustain_seconds);
     //INFO("brightness %f", brightness);
     //INFO("frequency %f", frequency);
