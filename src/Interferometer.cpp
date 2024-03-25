@@ -233,6 +233,7 @@ struct Interferometer : Module {
 
   enum ParamId {
                 BRIGHTNESS_PARAM,
+                MANVEL_PARAM,
 		DECAY_PARAM,
 		DELAY_FEEDBACK_FREQ_PARAM,
 		PARAMS_LEN
@@ -314,6 +315,7 @@ struct Interferometer : Module {
     //INFO("initializing");
     config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
     configParam(BRIGHTNESS_PARAM, 0.f, 1.f, 0.95f, "Brightness");
+    configParam(MANVEL_PARAM, 0.f, 1.f, 0.5f, "Velocity");
     configParam(DECAY_PARAM, 0.f, 0.125f, 0.f, "Decay");
     configParam(DELAY_FEEDBACK_FREQ_PARAM, 0.f, 0.49f, 0.40f, "Delay Feedback Freq");
     configInput(VOCT_INPUT, "V/Oct");
@@ -533,9 +535,9 @@ struct Interferometer : Module {
           #define FUDGE_DB (12)
           float cvvel;
           if (inputs[VELOCITY_INPUT].isConnected()) {
-            cvvel = math::clamp(inputs[VELOCITY_INPUT].getVoltage(ch), 0.0f, 10.0f); 
+            cvvel = math::clamp(inputs[VELOCITY_INPUT].getVoltage(ch), 0.0f, 10.0f)*params[MANVEL_PARAM].getValue(); 
           } else {
-            cvvel = 5.0f;
+            cvvel = 10.0f*params[MANVEL_PARAM].getValue();
           }
           if (hammer_enabled) {
             // gain is set by the hammer waveform (mostly)
@@ -925,7 +927,8 @@ struct InterferometerWidget : ModuleWidget {
     addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
     addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(25.4, 53.932)), module, Interferometer::BRIGHTNESS_PARAM));
+    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(14.753, 53.932)), module, Interferometer::BRIGHTNESS_PARAM));
+    addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.047, 53.932)), module, Interferometer::MANVEL_PARAM));
     addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(14.753, 73.771)), module, Interferometer::DECAY_PARAM));
     addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(36.047, 73.771)), module, Interferometer::DELAY_FEEDBACK_FREQ_PARAM));
 

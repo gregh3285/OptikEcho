@@ -18,11 +18,13 @@ The main I/O to this module are the these:
 
 - **GATE** is a polyphonic input for the note.  The rising edge of GATE triggers the start of a note.  It is sustained until GATE is removed.  The threshold for gate is set (without hysteresis) at 0.7 volts. 
 
-- **VELOCITY** is a polyphonic input for the velocity of the note.  The model currently just updates the gain of the note based upon the input.  This follows the guidance for velocity from 0 volts (*ppp*, quiet) to 10 volts (*fff*, loud).  Sending 0 does *not* shut the note off.  Note on and note off is controlled by the GATE.  Velocity is sampled when the V/OCT causes an update to internal state for a channel.  If nothing is connected to VELOCITY, 50% (5 V) is assumed.
+- **VELOCITY** (the input) is a polyphonic input for the velocity of the note.  The model currently just updates the gain of the note based upon the input.  This follows the guidance for velocity from 0 volts (*ppp*, quiet) to 10 volts (*fff*, loud).  Sending 0 does *not* shut the note off.  Note on and note off is controlled by the GATE.  Velocity is sampled when the V/OCT causes an update to internal state for a channel.  If nothing is connected to VELOCITY, 50% (5 V) is assumed.
 
 - **OUT** is a *monophonic* output of the piano simulator.
 
 - Light.  I'm an engineer by training.  Everything needs a flashing light.  I liked in the tutorial.  It stays.
+
+- **VELOCITY** (the knob or parameter) either sets the velocity of notes or acts as an attenuator if there's an input to VELOCITY (the input).
 
 Lessor I/O that may not survive include:
 
